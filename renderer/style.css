@@ -19,7 +19,7 @@
 .app.settings-view{grid-template-columns:72px 246px minmax(340px,1fr)}
 .app.settings-view .activity{display:none}
 .app.settings-view .main{padding-bottom:0}
-.main > .settings-view{flex:1;min-height:0;overflow:auto;padding:25px min(6vw,65px) 55px;max-width:930px;width:100%;align-self:center}
+.main > .settings-view{flex:1;min-height:0;max-height:calc(100vh - 1rem);overflow:auto;padding:25px min(6vw,65px) 55px;max-width:930px;width:100%;align-self:center}
 .messages{min-height:0;max-height:calc(100vh - 148px)}
 .settings-view h1{font-size:25px;margin:14px 0 5px}.settings-view>p{color:#a1a3b5;margin:0 0 24px}
 .settings-back{border:0;background:none;color:#bdb4ff;font-weight:700;padding:5px 0}

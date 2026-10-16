@@ -102,6 +102,7 @@ function createChatServer({ port = 3000, host = '0.0.0.0', password, dataDir = j
   });
 
   io.on('connection', socket => {
+    console.info(`[${new Date().toISOString()}] ${socket.data.name} conectado (${socket.id})`);
     users.set(socket.id, { name: socket.data.name, ownerKey: socket.data.ownerKey, voice: null, sharing: false, muted: false, lastMessage: 0 });
     const visible = Object.fromEntries(CHANNELS.map(({ id }) =>
       [id, messages[id].map(message => publicMessage(message, socket, false))]));
@@ -245,7 +246,8 @@ function createChatServer({ port = 3000, host = '0.0.0.0', password, dataDir = j
       if (!description && !candidate) return;
       io.to(to).emit('rtc:signal', { from: socket.id, description, candidate });
     });
-    socket.on('disconnect', () => {
+    socket.on('disconnect', reason => {
+      console.info(`[${new Date().toISOString()}] ${socket.data.name} desconectado (${socket.id}): ${reason}`);
       leaveVoice(socket);
       users.delete(socket.id);
       io.emit('presence', users.size);

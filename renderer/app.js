@@ -12,7 +12,7 @@ const state = {
   identity: '', pendingFile: null, audioContext: null, meters: new Map(), meterTimer: null,
   view: 'text', previousView: 'text', fileLimitMb: 8, theme: 'dark', accent: 'violet', accentColor: '#8171f1', avatar: null, shareQuality: 'performance',
   popoutPeers: new Map(), pendingSignals: [], speakingLevels: new Map(), remoteSpeaking: new Map(),
-  volumes: {}, voiceJoinPending: null, joiningRoom: null
+  volumes: {}, voiceJoinPending: null, joiningRoom: null, rejoinRoom: null, voiceResumeId: 0
 };
 
 function volumeKey(member) { return `${state.serverUrl}:${member.profileId || member.id}`; }
@@ -274,6 +274,8 @@ function renderActivity() {
 
 function updateVoiceUi() {
   const room = state.voices.find(item => item.id === state.voice);
+  document.querySelector('.call-status').textContent = state.rejoinRoom ? '● RECONECTANDO...' : '● VOZ CONECTADA';
+  document.querySelector('.dock-live').textContent = state.rejoinRoom ? '● RECONECTANDO...' : '● AO VIVO';
   $('call-panel').classList.toggle('hidden', !room);
   $('media-dock').classList.toggle('hidden', !room);
   $('mute-btn').disabled = !room;
@@ -572,6 +574,29 @@ async function enterVoice(room) {
     notify(error.message || 'Não foi possível entrar na sala.');
   }
 }
+async function restoreVoice(socket, room) {
+  const resumeId = state.voiceResumeId;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (state.socket !== socket || !socket.connected || state.voice !== room || state.voiceResumeId !== resumeId) return;
+    try {
+      const result = await emitAck('voice:join', room);
+      if (!result.ok) throw new Error(result.error);
+      if (state.socket !== socket || !socket.connected || state.voice !== room || state.voiceResumeId !== resumeId) return;
+      state.rejoinRoom = null;
+      if (state.mic) watchAudio(socket.id, state.mic);
+      socket.emit('voice:state', { muted: state.muted, sharing: !!state.screen });
+      updateVoiceUi();
+      for (const member of result.peers) createPeer(member.id);
+      for (const signal of state.pendingSignals.splice(0)) receiveSignal(signal);
+      notify('Sala de voz reconectada.');
+      return;
+    } catch (error) {
+      if (state.socket !== socket || !socket.connected || state.voice !== room || state.voiceResumeId !== resumeId) return;
+      if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+      else { leaveVoice(); notify(error.message || 'Não foi possível reconectar à sala de voz.'); }
+    }
+  }
+}
 function stopShare() {
   if (!state.screen) return;
   const screen = state.screen;
@@ -583,12 +608,14 @@ function stopShare() {
   }
   screen.getTracks().forEach(track => track.stop());
   hideStream('self');
-  state.socket?.emit('voice:state', { sharing: false });
+  if (state.socket?.connected) state.socket.emit('voice:state', { sharing: false });
   updateVoiceUi();
 }
 function leaveVoice() {
+  state.rejoinRoom = null;
+  state.voiceResumeId++;
   stopShare();
-  state.socket?.emit('voice:leave');
+  if (state.socket?.connected) state.socket.emit('voice:leave');
   for (const id of [...state.peers.keys()]) closePeer(id);
   stopWatching(state.socket?.id);
   state.audioContext?.close().catch(() => {});
@@ -663,13 +690,18 @@ function connect(url, name, code) {
     url = parsed.origin;
   } catch { $('login-error').textContent = 'Endereço inválido. Use http:// ou https://.'; return; }
   if (state.voice) leaveVoice();
-  state.socket?.disconnect();
+  state.rejoinRoom = null;
+  state.voiceResumeId++;
+  const previousSocket = state.socket;
+  state.socket = null;
+  previousSocket?.disconnect();
   state.name = name.slice(0, 32); state.serverUrl = url; state.code = code;
   $('connect-btn').disabled = true;
   $('connect-btn').firstChild.textContent = 'Conectando... ';
-  const socket = io(url, { auth: { name: state.name, code, identity: state.identity }, reconnectionAttempts: 5, timeout: 6000 });
+  const socket = io(url, { auth: { name: state.name, code, identity: state.identity }, reconnectionAttempts: Infinity, timeout: 10000 });
   state.socket = socket;
   socket.on('init', data => {
+    if (state.socket !== socket) return;
     state.channels = data.channels;
     state.voices = data.voices;
     state.messages = data.messages;
@@ -677,8 +709,8 @@ function connect(url, name, code) {
     state.roster = data.roster;
     state.iceServers = Array.isArray(data.iceServers) ? data.iceServers : [];
     state.avatar = data.avatar || null;
-    state.channel = 'geral';
-    state.view = 'text';
+    const roomToRestore = state.rejoinRoom;
+    if (!roomToRestore) { state.channel = 'geral'; state.view = 'text'; }
     $('profile-name').textContent = state.name;
     $('settings-name').textContent = state.name;
     setAvatar($('profile-avatar'), state.avatar, state.name);
@@ -688,16 +720,27 @@ function connect(url, name, code) {
     $('connect-btn').firstChild.textContent = 'Entrar no servidor ';
     localStorage.setItem('orbita-connection', JSON.stringify({ url, name: state.name, code }));
     renderChannels(); renderMessages(); renderView();
+    if (roomToRestore) {
+      if (state.voice === roomToRestore) restoreVoice(socket, roomToRestore);
+      else { state.rejoinRoom = null; joinVoice(roomToRestore); }
+    }
   });
   socket.on('connect_error', error => {
     $('login-error').textContent = error.message;
     $('connect-btn').disabled = false;
     $('connect-btn').firstChild.textContent = 'Entrar no servidor ';
   });
-  socket.on('disconnect', () => {
-    if (state.socket !== socket) return;
-    if (state.voice) leaveVoice();
-    notify('Conexão com o servidor interrompida.');
+  socket.on('disconnect', reason => {
+    if (state.socket !== socket || reason === 'io client disconnect') return;
+    state.rejoinRoom = state.voice || state.joiningRoom;
+    state.voiceResumeId++;
+    for (const id of [...state.peers.keys()]) closePeer(id);
+    for (const id of [...state.meters.keys()]) stopWatching(id);
+    state.pendingSignals.length = 0;
+    state.speakingLevels.clear(); state.remoteSpeaking.clear();
+    updateVoiceUi();
+    notify(state.rejoinRoom ? 'Conexão interrompida. Reconectando à sala de voz...' : 'Conexão com o servidor interrompida. Reconectando...');
+    if (reason === 'io server disconnect') socket.connect();
   });
   socket.on('presence', count => { $('online-count').textContent = `${count} online`; });
   socket.on('message:new', message => {
@@ -916,6 +959,8 @@ $('deafen-btn').onclick = () => {
 };
 $('leave-server').onclick = () => {
   if (state.voice) leaveVoice();
+  state.rejoinRoom = null;
+  state.voiceResumeId++;
   const socket = state.socket;
   state.socket = null;
   localStorage.removeItem('orbita-connection');

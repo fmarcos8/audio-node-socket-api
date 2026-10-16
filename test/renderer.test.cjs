@@ -167,6 +167,70 @@ test('navegação, miniatura da tela em janela separada e configurações', asyn
   await window.happyDOM.abort();
 });
 
+test('queda temporária restaura a sala de voz sem encerrar microfone e transmissão', async () => {
+  const { Window } = await import('happy-dom');
+  const window = new Window({ url: 'http://localhost' });
+  window.document.write(readFileSync(join(__dirname, '../renderer/index.html'), 'utf8'));
+  const events = new Map();
+  const emitted = [];
+  const socket = {
+    id: 'antigo', connected: true,
+    on: (event, handler) => { events.set(event, handler); },
+    timeout: () => ({ emit: (event, room, reply) => { emitted.push([event, room]); reply(null, { ok: true, peers: [] }); } }),
+    emit: (event, data) => emitted.push([event, data]),
+    connect: () => {}, disconnect: () => {}
+  };
+  let micStopped = 0;
+  let screenStopped = 0;
+  const context = vm.createContext({
+    document: window.document, window, localStorage: window.localStorage,
+    crypto: webcrypto, Intl, URL, console, setTimeout, clearTimeout, setInterval, clearInterval,
+    io: (_url, options) => { context.socketOptions = options; return socket; }, orbita: {}
+  });
+  vm.runInContext(readFileSync(join(__dirname, '../renderer/app.js'), 'utf8'), context);
+  const init = () => events.get('init')({
+    channels: [{ id: 'geral', name: 'geral' }], voices: [{ id: 'sala-geral', name: 'Sala geral' }],
+    messages: { geral: [] }, roster: { 'sala-geral': [] }, iceServers: []
+  });
+  vm.runInContext("connect('https://chat.exemplo.test', 'Ana', 'codigo')", context);
+  init();
+  context.microphone = { getTracks: () => [{ stop: () => { micStopped++; } }], getAudioTracks: () => [] };
+  context.screenStream = { getTracks: () => [{ stop: () => { screenStopped++; } }] };
+  vm.runInContext("state.voice = 'sala-geral'; state.view = 'voice'; state.muted = true; state.mic = microphone; state.screen = screenStream; updateVoiceUi()", context);
+  socket.connected = false;
+  events.get('disconnect')('transport close');
+  assert.equal(vm.runInContext('state.voice', context), 'sala-geral');
+  assert.equal(vm.runInContext('state.rejoinRoom', context), 'sala-geral');
+  assert.match(window.document.querySelector('.call-status').textContent, /RECONECTANDO/);
+  assert.equal(micStopped, 0);
+  assert.equal(screenStopped, 0);
+  assert.equal(emitted.some(([event]) => event === 'voice:leave'), false);
+
+  socket.id = 'novo'; socket.connected = true;
+  init();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(context.socketOptions.reconnectionAttempts, Infinity);
+  assert.equal(emitted.filter(([event]) => event === 'voice:join').length, 1);
+  assert.equal(emitted.find(([event]) => event === 'voice:state')[1].sharing, true);
+  assert.equal(emitted.find(([event]) => event === 'voice:state')[1].muted, true);
+  assert.equal(vm.runInContext('state.rejoinRoom', context), null);
+  assert.equal(vm.runInContext('state.voice', context), 'sala-geral');
+  assert.equal(window.document.getElementById('voice-stage').classList.contains('hidden'), false);
+  assert.equal(micStopped, 0);
+  assert.equal(screenStopped, 0);
+
+  socket.connected = false;
+  events.get('disconnect')('transport close');
+  vm.runInContext('leaveVoice()', context);
+  assert.equal(micStopped, 1);
+  assert.equal(screenStopped, 1);
+  socket.connected = true;
+  init();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(emitted.filter(([event]) => event === 'voice:join').length, 1);
+  await window.happyDOM.abort();
+});
+
 test('reconecta automaticamente à conexão salva e troca de servidor limpa a sessão', async () => {
   const { Window } = await import('happy-dom');
   const window = new Window({ url: 'http://localhost' });
