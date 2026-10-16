@@ -18,7 +18,9 @@
 @media(max-width:850px){.streams{right:8px;max-width:calc(100vw - 300px)}.stream-card.expanded{left:auto;right:auto}}
 .app.settings-view{grid-template-columns:72px 246px minmax(340px,1fr)}
 .app.settings-view .activity{display:none}
-.settings-view{flex:1;min-height:0;overflow:auto;padding:25px min(6vw,65px) 55px;max-width:930px;width:100%;align-self:center}
+.app.settings-view .main{padding-bottom:0}
+.main > .settings-view{flex:1;min-height:0;overflow:auto;padding:25px min(6vw,65px) 55px;max-width:930px;width:100%;align-self:center}
+.messages{min-height:0;max-height:calc(100vh - 148px)}
 .settings-view h1{font-size:25px;margin:14px 0 5px}.settings-view>p{color:#a1a3b5;margin:0 0 24px}
 .settings-back{border:0;background:none;color:#bdb4ff;font-weight:700;padding:5px 0}
 .settings-panel{background:#292a38;border:1px solid #3c3d50;border-radius:15px;padding:22px;margin-bottom:16px}

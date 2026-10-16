@@ -9,6 +9,9 @@ test('navegação, miniatura da tela em janela separada e configurações', asyn
   const { Window } = await import('happy-dom');
   const window = new Window({ url: 'http://localhost' });
   window.document.write(readFileSync(join(__dirname, '../renderer/index.html'), 'utf8'));
+  const stylesheet = window.document.createElement('style');
+  stylesheet.textContent = readFileSync(join(__dirname, '../renderer/style.css'), 'utf8');
+  window.document.head.append(stylesheet);
   window.HTMLVideoElement.prototype.play = async function () { this.playCalled = true; };
   const context = vm.createContext({
     document: window.document, window, localStorage: window.localStorage,
@@ -53,6 +56,9 @@ test('navegação, miniatura da tela em janela separada e configurações', asyn
 
   $('settings-btn').click();
   assert.equal($('settings-view').classList.contains('hidden'), false);
+  assert.equal(window.getComputedStyle($('app')).maxWidth, '');
+  assert.equal(window.getComputedStyle($('settings-view')).maxWidth, '930px');
+  assert.equal(window.getComputedStyle($('settings-view')).overflow, 'auto');
   assert.equal($('voice-stage').classList.contains('hidden'), true);
   $('file-limit').value = '100'; $('file-limit').onchange();
   assert.equal(window.localStorage.getItem('orbita-file-limit'), '100');
