@@ -56,6 +56,7 @@ async function createWindow() {
   window.on('closed', () => { for (const popup of popouts.values()) popup.close(); popouts.clear(); });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', event => event.preventDefault());
+  //window.webContents.openDevTools()
   await window.loadFile(appPage);
 }
 
