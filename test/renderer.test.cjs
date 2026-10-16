@@ -124,6 +124,7 @@ test('navegação, miniatura da tela em janela separada e configurações', asyn
     constructor() { this.added = []; this.connectionState = 'new'; }
     addTrack(track) { this.added.push(track); return context.videoSender; }
     getSenders() { return []; }
+    restartIce() { this.restartCalls = (this.restartCalls || 0) + 1; }
     close() {}
   };
   context.MediaStream = window.MediaStream;
@@ -142,6 +143,12 @@ test('navegação, miniatura da tela em janela separada e configurações', asyn
   assert.ok(audioElements.every(audio => audio.volume === 0.35));
   context.voiceTrack.onended();
   assert.equal(window.document.querySelectorAll('audio[data-audio-peer-id="outro"]').length, 1);
+  const peerPc = vm.runInContext("state.peers.get('outro').pc", context);
+  vm.runInContext('state.socket.connected = true', context);
+  peerPc.connectionState = 'failed'; peerPc.onconnectionstatechange();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(peerPc.restartCalls, 1);
+  peerPc.connectionState = 'connected'; peerPc.onconnectionstatechange();
   $('settings-back').click();
   assert.equal($('voice-stage').classList.contains('hidden'), false);
 
@@ -219,15 +226,37 @@ test('queda temporária restaura a sala de voz sem encerrar microfone e transmis
   assert.equal(micStopped, 0);
   assert.equal(screenStopped, 0);
 
+  const oldTrack = { readyState: 'ended', stop: () => { micStopped++; } };
+  const newTrack = { readyState: 'live', enabled: true, stop: () => { micStopped++; } };
+  context.expiredMicrophone = { getAudioTracks: () => [oldTrack], getTracks: () => [oldTrack] };
+  context.newMicrophone = { getAudioTracks: () => [newTrack], getTracks: () => [newTrack] };
+  context.AudioContext = class {
+    resume() { return Promise.resolve(); }
+    createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
+    createAnalyser() { return { fftSize: 512, getByteTimeDomainData: samples => samples.fill(128) }; }
+    close() { return Promise.resolve(); }
+  };
+  context.navigator = { mediaDevices: { getUserMedia: async () => context.newMicrophone } };
+  vm.runInContext('state.mic = expiredMicrophone', context);
+  socket.connected = false;
+  events.get('disconnect')('transport close');
+  socket.id = 'mais-novo'; socket.connected = true;
+  init();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(micStopped, 1);
+  assert.equal(newTrack.enabled, false);
+  assert.equal(vm.runInContext('state.mic === newMicrophone', context), true);
+  assert.equal(emitted.filter(([event]) => event === 'voice:join').length, 2);
+
   socket.connected = false;
   events.get('disconnect')('transport close');
   vm.runInContext('leaveVoice()', context);
-  assert.equal(micStopped, 1);
+  assert.equal(micStopped, 2);
   assert.equal(screenStopped, 1);
   socket.connected = true;
   init();
   await new Promise(resolve => setTimeout(resolve, 0));
-  assert.equal(emitted.filter(([event]) => event === 'voice:join').length, 1);
+  assert.equal(emitted.filter(([event]) => event === 'voice:join').length, 2);
   await window.happyDOM.abort();
 });
 

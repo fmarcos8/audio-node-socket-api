@@ -56,7 +56,7 @@ curl http://127.0.0.1:3000/
 
 O `curl` deve retornar `Órbita online`. O Compose publica a porta 3000 **somente em 127.0.0.1 no host**, permitindo acesso ao `cloudflared` instalado como serviço nesse mesmo Ubuntu. O histórico e os anexos ficam no volume persistente `orbita-data`, mesmo após recriar o contêiner. Para acompanhar erros: `docker compose logs -f orbita`.
 
-Se a conexão cair por alguns instantes, o cliente tenta reconectar e voltar à sala de voz anterior, mantendo microfone e compartilhamento ativos. Para investigar quedas recorrentes, consulte `docker compose logs -f orbita`: o servidor registra o motivo informado pelo Socket.IO ao desconectar cada usuário.
+Se a conexão cair por alguns instantes, o cliente tenta reconectar e voltar à sala de voz anterior, mantendo microfone e compartilhamento ativos. Se o microfone tiver sido encerrado pelo sistema, o cliente tenta capturá-lo novamente. Ligações WebRTC com falha tentam reiniciar a conexão de mídia e, se necessário, recriar a ligação com o colega. Para investigar quedas recorrentes, consulte `docker compose logs -f orbita`: o servidor registra o motivo informado pelo Socket.IO ao desconectar cada usuário.
 
 No túnel existente, adicione um hostname público, por exemplo `orbita.seu-dominio.com`, apontando para **`http://localhost:3000`**. Se você gerencia o túnel por arquivo `config.yml`, acrescente a regra antes da regra final `http_status:404` e reinicie o serviço:
 

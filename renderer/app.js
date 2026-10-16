@@ -7,7 +7,7 @@ const SCREEN_PRESETS = {
 };
 const state = {
   socket: null, name: '', channel: 'geral', channels: [], voices: [], messages: {}, avatars: {}, roster: {},
-  voice: null, mic: null, screen: null, muted: false, deafened: false, peers: new Map(),
+  voice: null, mic: null, screen: null, muted: false, deafened: false, peers: new Map(), peerFailures: new Map(),
   serverUrl: '', code: '', hostInvite: null, iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
   identity: '', pendingFile: null, audioContext: null, meters: new Map(), meterTimer: null,
   view: 'text', previousView: 'text', fileLimitMb: 8, theme: 'dark', accent: 'violet', accentColor: '#8171f1', avatar: null, shareQuality: 'performance',
@@ -375,7 +375,7 @@ async function applyScreenQuality() {
 function createPeer(id) {
   if (state.peers.has(id)) return state.peers.get(id);
   const pc = new RTCPeerConnection({ iceServers: state.iceServers });
-  const peer = { pc, makingOffer: false, ignoreOffer: false, isSettingRemoteAnswerPending: false, pending: [], signalQueue: Promise.resolve() };
+  const peer = { pc, makingOffer: false, ignoreOffer: false, isSettingRemoteAnswerPending: false, pending: [], signalQueue: Promise.resolve(), restartTimer: null, recoveryTimer: null };
   state.peers.set(id, peer);
   if (state.mic) for (const track of state.mic.getTracks()) pc.addTrack(track, state.mic);
   if (state.screen) for (const track of state.screen.getTracks()) {
@@ -418,12 +418,32 @@ function createPeer(id) {
   };
   pc.onconnectionstatechange = () => {
     if (pc.connectionState === 'connected') {
+      clearTimeout(peer.restartTimer); clearTimeout(peer.recoveryTimer);
+      peer.restartTimer = peer.recoveryTimer = null;
+      state.peerFailures.delete(id);
       document.querySelectorAll('audio[data-audio-peer-id]').forEach(audio => {
         if (audio.dataset.audioPeerId === id) audio.play().catch(console.warn);
       });
       for (const sender of pc.getSenders()) if (sender.track?.kind === 'video') configureScreenSender(sender);
     }
-    if (pc.connectionState === 'failed') notify('Conexão de mídia falhou. Pode ser necessário configurar um servidor TURN.');
+    if (['disconnected', 'failed'].includes(pc.connectionState) && !peer.restartTimer && !peer.recoveryTimer) {
+      peer.restartTimer = setTimeout(() => {
+        peer.restartTimer = null;
+        if (state.peers.get(id) !== peer || !state.socket?.connected || !state.voice) return;
+        try { pc.restartIce(); }
+        catch (error) { console.warn('Reinício de mídia indisponível:', error); }
+        peer.recoveryTimer = setTimeout(() => {
+          peer.recoveryTimer = null;
+          if (state.peers.get(id) !== peer || !state.socket?.connected || !state.voice ||
+            ['connected', 'closed'].includes(pc.connectionState)) return;
+          const attempts = (state.peerFailures.get(id) || 0) + 1;
+          if (attempts > 2) return notify('Áudio indisponível. Verifique a rede ou configure um servidor TURN.');
+          state.peerFailures.set(id, attempts);
+          closePeer(id);
+          createPeer(id);
+        }, 10000);
+      }, pc.connectionState === 'failed' ? 0 : 3000);
+    }
   };
   return peer;
 }
@@ -460,9 +480,11 @@ async function applySignal(peer, { from, description, candidate }) {
   }
 }
 function closePeer(id) {
+  const peer = state.peers.get(id);
+  clearTimeout(peer?.restartTimer); clearTimeout(peer?.recoveryTimer);
   stopWatching(id);
   refreshSpeakingUi();
-  state.peers.get(id)?.pc.close();
+  peer?.pc.close();
   state.peers.delete(id);
   document.querySelectorAll('audio[data-audio-peer-id]').forEach(audio => {
     if (audio.dataset.audioPeerId === id) audio.remove();
@@ -579,6 +601,21 @@ async function restoreVoice(socket, room) {
   for (let attempt = 0; attempt < 3; attempt++) {
     if (state.socket !== socket || !socket.connected || state.voice !== room || state.voiceResumeId !== resumeId) return;
     try {
+      const tracks = state.mic?.getAudioTracks() || [];
+      if (tracks.length && tracks.every(track => track.readyState === 'ended')) {
+        state.mic.getTracks().forEach(track => track.stop());
+        state.mic = null;
+        try {
+          const replacement = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true }, video: false });
+          if (state.socket !== socket || !socket.connected || state.voice !== room || state.voiceResumeId !== resumeId) {
+            replacement.getTracks().forEach(track => track.stop());
+            return;
+          }
+          state.mic = replacement;
+          state.mic.getAudioTracks().forEach(track => { track.enabled = !state.muted; });
+        } catch { notify('Microfone indisponível após a reconexão. Você ainda pode ouvir a sala.'); }
+      }
+      if (state.socket !== socket || !socket.connected || state.voice !== room || state.voiceResumeId !== resumeId) return;
       const result = await emitAck('voice:join', room);
       if (!result.ok) throw new Error(result.error);
       if (state.socket !== socket || !socket.connected || state.voice !== room || state.voiceResumeId !== resumeId) return;
@@ -625,6 +662,7 @@ function leaveVoice() {
   state.voice = null;
   state.pendingSignals.length = 0;
   state.speakingLevels.clear(); state.remoteSpeaking.clear();
+  state.peerFailures.clear();
   if (state.view === 'voice') state.view = 'text';
   state.muted = false;
   state.deafened = false;
@@ -735,6 +773,7 @@ function connect(url, name, code) {
     state.rejoinRoom = state.voice || state.joiningRoom;
     state.voiceResumeId++;
     for (const id of [...state.peers.keys()]) closePeer(id);
+    state.peerFailures.clear();
     for (const id of [...state.meters.keys()]) stopWatching(id);
     state.pendingSignals.length = 0;
     state.speakingLevels.clear(); state.remoteSpeaking.clear();
@@ -779,7 +818,7 @@ function connect(url, name, code) {
     renderChannels();
   });
   socket.on('voice:peer-joined', ({ id }) => { if (state.voice) createPeer(id); });
-  socket.on('voice:peer-left', ({ id }) => closePeer(id));
+  socket.on('voice:peer-left', ({ id }) => { closePeer(id); state.peerFailures.delete(id); });
   socket.on('voice:speaking', ({ id, speaking }) => {
     state.remoteSpeaking.set(id, speaking);
     refreshSpeakingUi();

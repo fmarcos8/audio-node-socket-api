@@ -1,6 +1,6 @@
 {
   "name": "orbita-chat",
-  "version": "0.3.8",
+  "version": "0.3.9",
   "private": true,
   "description": "Chat, voz e compartilhamento de tela em Electron",
   "main": "electron/main.cjs",
