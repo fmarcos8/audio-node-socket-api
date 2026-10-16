@@ -58,6 +58,21 @@ test('navegação, miniatura da tela em janela separada e configurações', asyn
   assert.equal(window.localStorage.getItem('orbita-file-limit'), '100');
   $('accent-select').value = 'ocean'; $('accent-select').onchange();
   assert.equal(window.document.documentElement.classList.contains('accent-ocean'), true);
+  assert.equal(window.localStorage.getItem('orbita-accent'), 'ocean');
+  $('theme-select').value = 'light'; $('theme-select').onchange();
+  assert.equal(window.document.documentElement.classList.contains('theme-light'), true);
+  assert.equal(window.localStorage.getItem('orbita-theme'), 'light');
+  $('accent-color').value = '#ffff00'; $('accent-color').oninput();
+  assert.equal($('accent-select').value, 'custom');
+  assert.equal(window.document.documentElement.style.getPropertyValue('--accent'), '#ffff00');
+  assert.equal(window.document.documentElement.style.getPropertyValue('--accent-contrast'), '#17202c');
+  assert.equal(window.localStorage.getItem('orbita-accent-color'), '#ffff00');
+  $('accent-hex').value = '#080808'; $('accent-hex').onchange();
+  assert.equal(window.document.documentElement.style.getPropertyValue('--accent-contrast'), '#ffffff');
+  $('accent-hex').value = 'invalida'; $('accent-hex').onchange();
+  assert.equal($('accent-hex').value, '#080808');
+  $('theme-select').value = 'dark'; $('theme-select').onchange();
+  assert.equal(window.document.documentElement.classList.contains('theme-light'), false);
   context.videoTrack = {
     kind: 'video', getSettings: () => ({ width: 1920, height: 1080 }),
     applyConstraints: async constraints => { context.captureLimits = constraints; }, stop: () => {}
@@ -151,6 +166,9 @@ test('reconecta automaticamente à conexão salva e troca de servidor limpa a se
   const window = new Window({ url: 'http://localhost' });
   window.document.write(readFileSync(join(__dirname, '../renderer/index.html'), 'utf8'));
   window.localStorage.setItem('orbita-connection', JSON.stringify({ url: 'https://chat.exemplo.test', name: 'Ana', code: 'codigo' }));
+  window.localStorage.setItem('orbita-theme', 'light');
+  window.localStorage.setItem('orbita-accent', 'custom');
+  window.localStorage.setItem('orbita-accent-color', '#23aabb');
   let connection;
   let openedUpdate = false;
   const socket = { on: () => {}, disconnect: () => { socket.disconnected = true; } };
@@ -160,6 +178,9 @@ test('reconecta automaticamente à conexão salva e troca de servidor limpa a se
     orbita: { checkUpdates: async () => ({ status: 'available', version: '0.3.3' }),
       openUpdate: async () => { openedUpdate = true; return true; } } });
   vm.runInContext(readFileSync(join(__dirname, '../renderer/app.js'), 'utf8'), context);
+  assert.equal(window.document.documentElement.classList.contains('theme-light'), true);
+  assert.equal(window.document.getElementById('accent-select').value, 'custom');
+  assert.equal(window.document.documentElement.style.getPropertyValue('--accent'), '#23aabb');
   await new Promise(resolve => setTimeout(resolve, 0));
   assert.equal(window.document.getElementById('update-banner').classList.contains('hidden'), false);
   assert.match(window.document.getElementById('update-title').textContent, /0\.3\.3/);

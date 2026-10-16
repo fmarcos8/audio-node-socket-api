@@ -104,7 +104,7 @@ Use salas pequenas: cada participante envia áudio e tela diretamente a cada out
 
 ### Configurações e foto
 
-Clique na engrenagem ao lado do seu nome para ajustar a cor de destaque, o limite local de envio e a foto de perfil. A foto é recortada em 256 × 256 pixels, enviada ao servidor e aparece no chat e nas salas de voz para outras pessoas. Ela fica guardada em `data/profiles.json`, associada à identidade deste dispositivo. Mantenha o volume `orbita-data` ao atualizar o contêiner. Se apagar a identidade local do aplicativo, o perfil anterior não poderá ser editado. As preferências de cor e tamanho ficam somente neste dispositivo.
+Clique na engrenagem ao lado do seu nome para escolher o tema **Claro** ou **Escuro** e a cor de destaque. Você pode usar Violeta, Azul ou Rosa, ou escolher qualquer cor no seletor ou digitando seu código hexadecimal. A alteração aparece imediatamente e fica salva neste dispositivo. Também é possível ajustar o limite local de envio e a foto de perfil. A foto é recortada em 256 × 256 pixels, enviada ao servidor e aparece no chat e nas salas de voz para outras pessoas. Ela fica guardada em `data/profiles.json`, associada à identidade deste dispositivo. Mantenha o volume `orbita-data` ao atualizar o contêiner. Se apagar a identidade local do aplicativo, o perfil anterior não poderá ser editado. As preferências de aparência e tamanho ficam somente neste dispositivo.
 
 ### Atualizações do aplicativo
 

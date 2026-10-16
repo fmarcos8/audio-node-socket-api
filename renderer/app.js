@@ -10,7 +10,7 @@ const state = {
   voice: null, mic: null, screen: null, muted: false, deafened: false, peers: new Map(),
   serverUrl: '', code: '', hostInvite: null, iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
   identity: '', pendingFile: null, audioContext: null, meters: new Map(), meterTimer: null,
-  view: 'text', previousView: 'text', fileLimitMb: 8, accent: 'violet', avatar: null, shareQuality: 'performance',
+  view: 'text', previousView: 'text', fileLimitMb: 8, theme: 'dark', accent: 'violet', accentColor: '#8171f1', avatar: null, shareQuality: 'performance',
   popoutPeers: new Map(), pendingSignals: [], speakingLevels: new Map(), remoteSpeaking: new Map(),
   volumes: {}, voiceJoinPending: null, joiningRoom: null
 };
@@ -817,13 +817,52 @@ $('file-limit').onchange = () => {
   }
   notify(`Limite de envio ajustado para ${value} MB.`);
 };
+const ACCENT_PRESETS = { violet: '#8171f1', ocean: '#4b9ce7', rose: '#df75a3' };
+const validAccentColor = color => /^#[0-9a-f]{6}$/i.test(color || '');
+function applyAppearance() {
+  const root = document.documentElement;
+  root.classList.toggle('theme-light', state.theme === 'light');
+  root.classList.toggle('accent-ocean', state.accent === 'ocean');
+  root.classList.toggle('accent-rose', state.accent === 'rose');
+  const color = state.accent === 'custom' ? state.accentColor : ACCENT_PRESETS[state.accent];
+  const [r, g, b] = [1, 3, 5].map(i => parseInt(color.slice(i, i + 2), 16));
+  // O texto dos botões continua legível mesmo com cores muito claras ou escuras.
+  const luminance = [r, g, b].reduce((sum, value, i) => {
+    const channel = value / 255;
+    return sum + (channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4) * [0.2126, 0.7152, 0.0722][i];
+  }, 0);
+  root.style.setProperty('--accent', color);
+  root.style.setProperty('--accent-contrast', luminance > 0.179 ? '#17202c' : '#ffffff');
+  root.style.setProperty('--accent-icon-filter', luminance > 0.179 ? 'invert(0%)' : 'invert(100%)');
+  $('theme-select').value = state.theme;
+  $('accent-select').value = state.accent;
+  $('accent-color').value = state.accentColor;
+  $('accent-hex').value = state.accentColor.toUpperCase();
+}
+$('theme-select').onchange = () => {
+  state.theme = $('theme-select').value === 'light' ? 'light' : 'dark';
+  localStorage.setItem('orbita-theme', state.theme);
+  applyAppearance();
+};
 $('accent-select').onchange = () => {
   const accent = $('accent-select').value;
-  if (!['violet', 'ocean', 'rose'].includes(accent)) return;
+  if (accent !== 'custom' && !Object.hasOwn(ACCENT_PRESETS, accent)) return;
   state.accent = accent;
-  document.documentElement.classList.toggle('accent-ocean', accent === 'ocean');
-  document.documentElement.classList.toggle('accent-rose', accent === 'rose');
   localStorage.setItem('orbita-accent', accent);
+  applyAppearance();
+};
+function chooseCustomAccent(color) {
+  if (!validAccentColor(color)) return false;
+  state.accentColor = color.toLowerCase();
+  state.accent = 'custom';
+  localStorage.setItem('orbita-accent-color', state.accentColor);
+  localStorage.setItem('orbita-accent', 'custom');
+  applyAppearance();
+  return true;
+}
+$('accent-color').oninput = () => chooseCustomAccent($('accent-color').value);
+$('accent-hex').onchange = () => {
+  if (!chooseCustomAccent($('accent-hex').value.trim())) $('accent-hex').value = state.accentColor.toUpperCase();
 };
 $('share-quality').onchange = async () => {
   const quality = $('share-quality').value;
@@ -914,7 +953,11 @@ try {
   $('code-input').value = saved.code || '';
   const limit = Number(localStorage.getItem('orbita-file-limit'));
   if (Number.isInteger(limit) && limit >= 1 && limit <= 100) state.fileLimitMb = limit;
-  state.accent = ['violet', 'ocean', 'rose'].includes(localStorage.getItem('orbita-accent')) ? localStorage.getItem('orbita-accent') : 'violet';
+  state.theme = localStorage.getItem('orbita-theme') === 'light' ? 'light' : 'dark';
+  const savedAccent = localStorage.getItem('orbita-accent');
+  if (savedAccent === 'custom' || Object.hasOwn(ACCENT_PRESETS, savedAccent)) state.accent = savedAccent;
+  const savedColor = localStorage.getItem('orbita-accent-color');
+  if (validAccentColor(savedColor)) state.accentColor = savedColor.toLowerCase();
   const quality = localStorage.getItem('orbita-share-quality');
   if (Object.hasOwn(SCREEN_PRESETS, quality)) state.shareQuality = quality;
   const volumes = JSON.parse(localStorage.getItem('orbita-volumes') || '{}');
@@ -922,8 +965,7 @@ try {
 } catch { /* Sem conexão anterior. */ }
 $('file-limit').value = state.fileLimitMb;
 $('attachment-btn').title = `Anexar arquivo (até ${state.fileLimitMb} MB)`;
-$('accent-select').value = state.accent;
-$('accent-select').onchange();
+applyAppearance();
 $('share-quality').value = state.shareQuality;
 if (!orbita.canShareSystemAudio) {
   $('share-audio').disabled = true;

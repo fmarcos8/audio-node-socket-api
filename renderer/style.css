@@ -51,3 +51,51 @@
 .update-banner div{flex:1;min-width:0}.update-banner strong,.update-banner small{display:block}.update-banner strong{font-size:12px}.update-banner small{font-size:11px;color:#bdbbd1;margin-top:3px}
 .update-banner button{border:0;border-radius:8px;background:var(--accent);color:white;padding:8px 10px;white-space:nowrap;font-size:11px;font-weight:700}
 .update-banner #update-dismiss{background:transparent;color:#c7c3da;font-size:20px;padding:2px 5px}
+
+/* Aparência: a cor escolhida também deve funcionar com tons claros e escuros. */
+:root{--accent-contrast:#fff;--accent-ink:color-mix(in srgb,var(--accent) 60%,#e9eaf4)}
+.rail-logo,.brand-mark,.dock-button.active,.inline-edit-buttons .save-edit,.update-banner button:not(#update-dismiss){background:var(--accent);color:var(--accent-contrast)}
+.primary,.composer button[type=submit]{color:var(--accent-contrast)}
+.login-card h1 span,.eyebrow,.channel.active .channel-icon,.settings-back,.welcome-icon,.activity-tip>span{color:var(--accent-ink)}
+.channel.active{background:color-mix(in srgb,var(--accent) 24%,#292a38)}
+.login-card input:focus,.source-item:hover,.message-attachment:hover{border-color:var(--accent)}
+.custom-accent{margin:12px 0 15px}.custom-accent-controls{display:flex;gap:10px;align-items:center}
+.custom-accent-controls input[type=color]{width:54px;height:42px;border:1px solid #55566b;border-radius:9px;background:#1e1f2b;padding:4px;cursor:pointer}
+.settings-panel .custom-accent-controls input[type=text]{width:120px;height:42px;border:1px solid #55566b;border-radius:9px;background:#1e1f2b;color:#fff;padding:10px 12px;text-transform:uppercase;font:inherit}
+.custom-accent-controls input:focus-visible,.settings-panel select:focus-visible,.settings-panel input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+:root.theme-light{color-scheme:light;--accent-ink:color-mix(in srgb,var(--accent) 62%,#17202c);color:#22283a;background:#f4f6fb}
+.theme-light .rail{background:#eef0f7}.theme-light .rail-server,.theme-light .rail-exit{background:#fff;color:#536078}.theme-light .rail-separator{background:#d6dce9}
+.theme-light .sidebar,.theme-light .activity{background:#f8f9fc;border-color:#dce1eb}
+.theme-light .server-heading,.theme-light .topbar,.theme-light .voice-stage{border-color:#dce1eb}
+.theme-light .server-heading small,.theme-light .server-chevron,.theme-light .category,.theme-light .channel,.theme-light .channel-icon,.theme-light .voice-member,.theme-light .profile-copy span,.theme-light .icon-button,.theme-light .hash,.theme-light .top-title #channel-description,.theme-light .online-pill,.theme-light .welcome p,.theme-light .message-meta span,.theme-light .activity-heading,.theme-light .activity-heading span,.theme-light .activity-person,.theme-light .activity-person small,.theme-light .activity-empty,.theme-light .activity-tip p,.theme-light .voice-stage-title span,.theme-light .voice-tile small,.theme-light .voice-hint,.theme-light .peer-volume,.theme-light .settings-view>p,.theme-light .settings-panel small,.theme-light .login-subtitle,.theme-light .login-footer,.theme-light .divider,.theme-light .dialog-footer,.theme-light .dialog-footer small{color:#647087}
+.theme-light .channel:hover{background:#edf0f7;color:#22283a}.theme-light .channel.active{background:color-mix(in srgb,var(--accent) 15%,#fff);color:#22283a}
+.theme-light .call-panel,.theme-light .activity-tip,.theme-light .welcome-icon,.theme-light .voice-tile,.theme-light .settings-panel,.theme-light .source-item,.theme-light .message-action,.theme-light .message-attachment,.theme-light .attachment-preview{background:#fff;border-color:#dce1eb}
+.theme-light .profile-bar,.theme-light .media-dock,.theme-light .voice-stage{background:#eef1f7}
+.theme-light .main,.theme-light .login-card{background:#fff}.theme-light .message+.message{border-color:#e9edf4}
+.theme-light .message-text{color:#354056}.theme-light .top-divider{background:#dce1eb}
+.theme-light .composer,.theme-light .dock-button,.theme-light .inline-edit textarea,.theme-light .inline-edit-buttons button{background:#eef1f7;color:#253149}
+.theme-light .composer input,.theme-light .inline-edit textarea{color:#253149}.theme-light .composer input::placeholder{color:#6b7489}
+.theme-light .composer-plus,.theme-light .composer #attachment-btn,.theme-light .attachment-preview button{color:#59647a}
+.theme-light .dock-button.active,.theme-light .inline-edit-buttons .save-edit{background:var(--accent);color:var(--accent-contrast)}
+.theme-light .dock-button.danger{background:#fce8ed;color:#982e4e}.theme-light .dock-info small{color:#647087}
+.theme-light .stream-card{border-color:#dce1eb;background:#fff}.theme-light .stream-card span{color:#354056}.theme-light .stream-maximize{background:#e9edf5}
+.theme-light .login-view{background:radial-gradient(ellipse at 55% 20%,color-mix(in srgb,var(--accent) 12%,#fff) 0%,#f4f6fb 55%,#e9edf6 100%)}
+.theme-light .login-glow{background:color-mix(in srgb,var(--accent) 20%,transparent)}.theme-light .login-card{border-color:#dce1eb;box-shadow:0 25px 70px #28344a23}
+.theme-light .login-card label,.theme-light .settings-panel label{color:#38445b}
+.theme-light .login-card input,.theme-light .settings-panel input[type=number],.theme-light .settings-panel select,.theme-light .custom-accent-controls input[type=color],.theme-light .settings-panel .custom-accent-controls input[type=text]{background:#fff;border-color:#cbd3e2;color:#253149}
+.theme-light .login-card input::placeholder{color:#748098}.theme-light .outline{border-color:#cbd3e2;color:#38445b}
+.theme-light .divider:before{background:#dce1eb}.theme-light .divider span{background:#fff}
+.theme-light .source-dialog{background:#fff;color:#253149;border-color:#dce1eb}.theme-light .close-dialog{color:#536078}
+.theme-light .source-item{color:#253149}.theme-light .share-audio-option{color:#38445b}
+.theme-light .settings-actions button,.theme-light .settings-update-button{background:color-mix(in srgb,var(--accent) 15%,#fff);color:var(--accent-ink);border-color:color-mix(in srgb,var(--accent) 30%,#dce1eb)}
+.theme-light .settings-actions button:last-child{background:#fff;color:#536078;border-color:#cbd3e2}
+.theme-light .message-action:hover,.theme-light .composer #attachment-btn:hover{background:#dfe4ef}
+.theme-light .message-attachment{color:#253149}.theme-light .message-attachment small{color:#647087}
+.theme-light .inline-edit-buttons button{background:#e5e9f2}.theme-light .attachment-preview{color:#354056}
+.theme-light .toast,.theme-light .update-banner{background:#fff;color:#253149;border-color:#cbd3e2;box-shadow:0 10px 35px #28344a33}
+.theme-light .update-banner small,.theme-light .update-banner #update-dismiss{color:#647087}
+.theme-light .ui-icon{filter:invert(28%);opacity:1}.theme-light .composer button[type=submit] .ui-icon,.theme-light .dock-button.active .ui-icon{filter:invert(100%)}
+.theme-light .stream-maximize .ui-icon{filter:invert(28%)}
+.composer button[type=submit] .ui-icon,.dock-button.active .ui-icon{filter:var(--accent-icon-filter, invert(100%))}
+.theme-light .voice-tile-avatar{color:#fff}.theme-light .call-status,.theme-light .dock-live,.theme-light .voice-member.speaking{color:#087c56}
