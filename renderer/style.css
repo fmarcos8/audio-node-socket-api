@@ -45,3 +45,9 @@
 .share-audio-option input{accent-color:var(--accent)}
 .share-audio-option:has(input:disabled){opacity:.55;cursor:default}
 .dialog-footer small{color:#a9a9bb;font-size:11px}
+.settings-update-button{border:1px solid #635b99;background:#423b72;color:white;border-radius:8px;padding:9px 12px;margin-bottom:9px}
+.settings-update-button:disabled{opacity:.55;cursor:wait}
+.update-banner{position:fixed;z-index:30;top:18px;left:50%;transform:translateX(-50%);width:min(550px,calc(100vw - 36px));display:flex;align-items:center;gap:14px;background:#302d46;border:1px solid #8276c8;border-radius:12px;padding:13px 15px;box-shadow:0 12px 40px #0008}
+.update-banner div{flex:1;min-width:0}.update-banner strong,.update-banner small{display:block}.update-banner strong{font-size:12px}.update-banner small{font-size:11px;color:#bdbbd1;margin-top:3px}
+.update-banner button{border:0;border-radius:8px;background:var(--accent);color:white;padding:8px 10px;white-space:nowrap;font-size:11px;font-weight:700}
+.update-banner #update-dismiss{background:transparent;color:#c7c3da;font-size:20px;padding:2px 5px}

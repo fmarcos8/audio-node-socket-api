@@ -1,9 +1,10 @@
-const { app, BrowserWindow, ipcMain, desktopCapturer, session, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, desktopCapturer, session, dialog, shell } = require('electron');
 const { join, basename } = require('node:path');
 const { writeFile } = require('node:fs/promises');
 const { networkInterfaces } = require('node:os');
 const { randomBytes } = require('node:crypto');
 const { createChatServer } = require('../server/index.cjs');
+const { checkForUpdates } = require('./updates.cjs');
 
 let window;
 let localServer;
@@ -11,6 +12,7 @@ let localAddress;
 const selectedSources = new Map();
 const appPage = join(__dirname, '../renderer/index.html');
 const popouts = new Map();
+let availableUpdateUrl = null;
 
 function lanAddress() {
   for (const entries of Object.values(networkInterfaces())) {
@@ -58,6 +60,23 @@ async function createWindow() {
 }
 
 app.whenReady().then(() => {
+  ipcMain.handle('update:check', async event => {
+    if (event.sender !== window?.webContents) return { status: 'error' };
+    availableUpdateUrl = null;
+    try {
+      const result = await checkForUpdates(app.getVersion());
+      if (result.status === 'available') availableUpdateUrl = result.url;
+      return { status: result.status, version: result.version };
+    } catch (error) {
+      console.warn('Falha ao verificar atualização:', error);
+      return { status: 'error' };
+    }
+  });
+  ipcMain.handle('update:open', async event => {
+    if (event.sender !== window?.webContents || !availableUpdateUrl) return false;
+    await shell.openExternal(availableUpdateUrl);
+    return true;
+  });
   ipcMain.handle('stream:open', async (event, id) => {
     if (event.sender !== window?.webContents || typeof id !== 'string' || !/^(self|[\w-]{1,64})$/.test(id)) return false;
     const existing = popouts.get(id);

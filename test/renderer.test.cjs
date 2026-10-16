@@ -152,11 +152,20 @@ test('reconecta automaticamente à conexão salva e troca de servidor limpa a se
   window.document.write(readFileSync(join(__dirname, '../renderer/index.html'), 'utf8'));
   window.localStorage.setItem('orbita-connection', JSON.stringify({ url: 'https://chat.exemplo.test', name: 'Ana', code: 'codigo' }));
   let connection;
+  let openedUpdate = false;
   const socket = { on: () => {}, disconnect: () => { socket.disconnected = true; } };
   const context = vm.createContext({ document: window.document, window, localStorage: window.localStorage,
     crypto: webcrypto, Intl, URL, console, setTimeout, clearTimeout, setInterval, clearInterval,
-    io: (url, options) => { connection = { url, options }; return socket; }, orbita: {} });
+    io: (url, options) => { connection = { url, options }; return socket; },
+    orbita: { checkUpdates: async () => ({ status: 'available', version: '0.3.3' }),
+      openUpdate: async () => { openedUpdate = true; return true; } } });
   vm.runInContext(readFileSync(join(__dirname, '../renderer/app.js'), 'utf8'), context);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(window.document.getElementById('update-banner').classList.contains('hidden'), false);
+  assert.match(window.document.getElementById('update-title').textContent, /0\.3\.3/);
+  window.document.getElementById('update-download').click();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(openedUpdate, true);
   assert.equal(connection.url, 'https://chat.exemplo.test');
   assert.equal(connection.options.auth.name, 'Ana');
   assert.equal(connection.options.auth.code, 'codigo');

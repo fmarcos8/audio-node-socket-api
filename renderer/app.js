@@ -36,6 +36,29 @@ function notify(message) {
   clearTimeout(notify.timer);
   notify.timer = setTimeout(() => toast.classList.add('hidden'), 4500);
 }
+async function checkUpdates(manual = false) {
+  if (!orbita.checkUpdates) return;
+  const button = $('check-update');
+  if (manual) button.disabled = true;
+  try {
+    const result = await orbita.checkUpdates();
+    if (result.status === 'available') {
+      $('update-title').textContent = `Órbita ${result.version} disponível`;
+      $('update-banner').classList.remove('hidden');
+    } else if (manual) {
+      const messages = {
+        current: 'Você já está usando a versão mais recente.',
+        'no-release': 'Ainda não há uma versão publicada para baixar.',
+        'no-installer': 'A versão nova ainda não tem instalador para este sistema.',
+        unsupported: 'Não há instalador de atualização para este sistema.'
+      };
+      notify(messages[result.status] || 'Não foi possível verificar atualizações.');
+    }
+  } catch (error) {
+    if (manual) notify('Não foi possível verificar atualizações.');
+    console.warn('Verificação de atualização:', error);
+  } finally { button.disabled = false; }
+}
 function initials(name) { return [...name.trim()][0]?.toUpperCase() || '?'; }
 function time(at) { return new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(at); }
 function make(tag, cls, text) {
@@ -864,6 +887,12 @@ $('leave-server').onclick = () => {
   state.view = 'text';
   $('app').classList.add('hidden'); $('login').classList.remove('hidden');
 };
+$('check-update').onclick = () => checkUpdates(true);
+$('update-dismiss').onclick = () => $('update-banner').classList.add('hidden');
+$('update-download').onclick = async () => {
+  try { if (!await orbita.openUpdate()) notify('Não foi possível abrir a atualização.'); }
+  catch { notify('Não foi possível abrir a atualização.'); }
+};
 document.querySelector('.server-heading').onclick = async () => {
   const invite = state.hostInvite || state.serverUrl;
   const info = `Endereço: ${invite}\nCódigo: ${state.code}`;
@@ -902,3 +931,4 @@ if (!orbita.canShareSystemAudio) {
 }
 if (savedConnection?.url && savedConnection?.name && savedConnection?.code)
   connect(savedConnection.url, savedConnection.name, savedConnection.code);
+checkUpdates();

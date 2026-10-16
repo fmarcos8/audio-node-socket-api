@@ -2,6 +2,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('orbita', {
   canShareSystemAudio: process.platform === 'win32',
+  checkUpdates: () => ipcRenderer.invoke('update:check'),
+  openUpdate: () => ipcRenderer.invoke('update:open'),
   host: () => ipcRenderer.invoke('server:host'),
   sources: () => ipcRenderer.invoke('capture:sources'),
   selectSource: id => ipcRenderer.invoke('capture:select', id),

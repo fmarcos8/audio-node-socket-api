@@ -106,6 +106,12 @@ Use salas pequenas: cada participante envia áudio e tela diretamente a cada out
 
 Clique na engrenagem ao lado do seu nome para ajustar a cor de destaque, o limite local de envio e a foto de perfil. A foto é recortada em 256 × 256 pixels, enviada ao servidor e aparece no chat e nas salas de voz para outras pessoas. Ela fica guardada em `data/profiles.json`, associada à identidade deste dispositivo. Mantenha o volume `orbita-data` ao atualizar o contêiner. Se apagar a identidade local do aplicativo, o perfil anterior não poderá ser editado. As preferências de cor e tamanho ficam somente neste dispositivo.
 
+### Atualizações do aplicativo
+
+O cliente verifica a Release pública mais recente do repositório `fmarcos8/audio-node-socket-api` a cada abertura. Se a versão for maior que a instalada e houver um instalador para seu sistema, aparece um aviso com o botão **Baixar atualização**; o download abre no navegador e a instalação é feita pelo usuário. Também é possível usar **Configurações → Verificar agora**. Sem internet ou sem Release publicada, o início do aplicativo continua normalmente. Essa atualização é do cliente; o servidor Docker deve ser atualizado separadamente quando houver mudanças nele.
+
+Para publicar a próxima versão Windows, atualize o número em `package.json` e `package-lock.json` (por exemplo, `npm version 0.3.4 --no-git-tag-version`), teste e gere o instalador no Windows com `npm run pack:win`. Envie o código para `main`, crie uma branch de versão no mesmo commit e publique uma **GitHub Release** com tag `v0.3.4`, anexando o `.exe` gerado em `dist/`. O aviso no aplicativo só aparece quando houver uma Release pública com instalador para o sistema instalado.
+
 ### Atualizar a instalação
 
 No servidor Docker, substitua os arquivos do projeto mantendo seu `.env` e execute `docker compose up -d --build`. Não exclua o volume `orbita-data`. No Windows, extraia a versão nova do projeto, execute `npm install` e `npm run pack:win`, depois instale o novo `.exe`. **Atualize servidor e cliente** para usar anexos de até 100 MB e foto de perfil.
