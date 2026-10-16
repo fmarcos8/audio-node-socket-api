@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' data:; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src http: https: ws: wss:; media-src 'self' blob:; object-src 'none'; base-uri 'none'">
+  <title>Órbita</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="login" class="login-view">
+    <div class="login-glow"></div>
+    <div class="login-card">
+      <div class="brand-mark"><img src="../assets/orbita-icon.svg" alt=""></div>
+      <p class="eyebrow">UM LUGAR PARA SE ENCONTRAR</p>
+      <h1>Bem-vindo à <span>Órbita.</span></h1>
+      <p class="login-subtitle">Converse, entre em uma sala de voz e mostre sua tela. Tudo em um só lugar.</p>
+      <label>Seu nome<input id="name-input" maxlength="32" placeholder="Como vamos chamar você?" autocomplete="nickname"></label>
+      <label>Endereço do servidor<input id="url-input" placeholder="http://192.168.1.10:3000" spellcheck="false"></label>
+      <label>Código de acesso<input id="code-input" type="password" placeholder="Código de convite"></label>
+      <button id="connect-btn" class="primary wide">Entrar no servidor <span>→</span></button>
+      <div class="divider"><span>ou</span></div>
+      <button id="host-btn" class="outline wide">Criar servidor neste computador</button>
+      <p id="login-error" class="error" role="alert"></p>
+    </div>
+    <div class="login-footer">ÓRBITA · SEU ESPAÇO, SUA CONVERSA</div>
+  </div>
+
+  <div id="app" class="app hidden">
+    <nav class="rail" aria-label="Navegação"><div class="rail-logo" title="Órbita"><img src="../assets/orbita-icon.svg" alt=""></div><div class="rail-separator"></div><div class="rail-server">O</div><div class="rail-spacer"></div><button id="leave-server" title="Trocar servidor" class="rail-exit"><img class="ui-icon" src="icons/log-out.svg" alt=""></button></nav>
+    <aside class="sidebar">
+      <header class="server-heading"><div><strong>Meu espaço</strong><small>CONVERSA EM TEMPO REAL</small></div><span class="server-chevron">⌄</span></header>
+      <div class="channel-scroll">
+        <div class="category">CANAIS DE TEXTO <span>⌁</span></div>
+        <div id="text-channels"></div>
+        <div class="category voice-category">SALAS DE VOZ <span>⌁</span></div>
+        <div id="voice-channels"></div>
+      </div>
+      <div id="call-panel" class="call-panel hidden"><div class="call-status">● VOZ CONECTADA</div><strong id="call-room">Sala geral</strong><button id="disconnect-btn">Desconectar ↗</button></div>
+      <div class="profile-bar"><div id="profile-avatar" class="avatar avatar-self">?</div><div class="profile-copy"><strong id="profile-name"></strong><span id="profile-status">Online</span></div><button id="settings-btn" class="icon-button" title="Configurações" aria-label="Configurações"><img class="ui-icon" src="icons/settings.svg" alt=""></button><button id="mute-btn" class="icon-button" title="Silenciar microfone" disabled><img class="ui-icon" src="icons/mic.svg" alt=""></button><button id="deafen-btn" class="icon-button" title="Desativar áudio recebido" disabled><img class="ui-icon" src="icons/headphones.svg" alt=""></button></div>
+    </aside>
+    <main class="main">
+      <header class="topbar"><div class="top-title"><img class="ui-icon" src="icons/hash.svg" alt=""><strong id="channel-title">geral</strong><span class="top-divider"></span><span id="channel-description">Um lugar para começar a conversa</span></div><div class="online-pill"><span class="online-dot"></span><span id="online-count">1 online</span></div></header>
+      <section id="voice-stage" class="voice-stage hidden" aria-label="Participantes da sala de voz"><div class="voice-stage-title"><img class="ui-icon" src="icons/volume-2.svg" alt=""><strong id="voice-stage-name">Sala geral</strong><span id="voice-stage-count">0 pessoas</span></div><div id="voice-tiles" class="voice-tiles"></div><div id="streams" class="streams hidden"></div><p id="voice-hint" class="voice-hint">Você está na sala de voz. Compartilhe sua tela para mostrá-la aqui.</p></section>
+      <section id="settings-view" class="settings-view hidden" aria-label="Configurações"><button id="settings-back" class="settings-back">← Voltar</button><h1>Configurações</h1><p>Personalize sua experiência no Órbita.</p><div class="settings-panel"><h2>Meu perfil</h2><div class="settings-profile"><div id="settings-avatar" class="avatar settings-avatar">?</div><div><strong id="settings-name"></strong><small>Foto visível para as pessoas do servidor</small></div></div><input id="avatar-input" type="file" accept="image/png,image/jpeg,image/webp" hidden><div class="settings-actions"><button id="avatar-choose" type="button">Escolher foto</button><button id="avatar-remove" type="button">Remover foto</button></div><small>PNG, JPG ou WebP. A foto será ajustada para 256 × 256 pixels.</small></div><div class="settings-panel"><h2>Aparência</h2><label for="accent-select">Cor de destaque</label><select id="accent-select"><option value="violet">Violeta</option><option value="ocean">Azul</option><option value="rose">Rosa</option></select></div><div class="settings-panel"><h2>Compartilhamento de tela</h2><label for="share-quality">Qualidade da transmissão</label><select id="share-quality"><option value="performance">Desempenho · 720p / 15 FPS</option><option value="balanced">Equilibrado · 720p / 25 FPS</option><option value="quality">Nitidez · 1080p / 30 FPS</option></select><small>Troque durante a transmissão se o jogo ficar lento. Cada pessoa na sala recebe uma cópia do vídeo.</small></div><div class="settings-panel"><h2>Arquivos</h2><label for="file-limit">Limite de envio neste aplicativo (MB)</label><input id="file-limit" type="number" min="1" max="100" step="1" inputmode="numeric"><small>Você pode alterar a qualquer momento. O servidor aceita arquivos de até 100 MB.</small></div></section>
+      <div id="messages" class="messages" aria-live="polite"></div>
+      <div id="attachment-preview" class="attachment-preview hidden"></div>
+      <form id="message-form" class="composer"><input id="file-input" type="file" hidden><button type="button" id="attachment-btn" class="composer-attach" title="Anexar arquivo"><img class="ui-icon" src="icons/paperclip.svg" alt=""></button><input id="message-input" maxlength="2000" autocomplete="off" placeholder="Mensagem em #geral"><button type="submit" title="Enviar"><img class="ui-icon" src="icons/send.svg" alt=""></button></form>
+    </main>
+    <aside class="activity"><div class="activity-heading">NA SALA <span id="room-count">0</span></div><div id="activity-content" class="activity-content"></div><div class="activity-tip"><span>✦</span><strong>Mais perto, mesmo longe.</strong><p>Entre numa sala de voz para conversar ou compartilhar sua tela.</p></div></aside>
+    <div id="media-dock" class="media-dock hidden"><div class="dock-info"><span class="dock-live">● AO VIVO</span><strong id="dock-title">Sala geral</strong><small id="dock-description">Conectado à voz</small></div><div class="dock-actions"><button id="share-btn" class="dock-button"><img class="ui-icon" src="icons/monitor-up.svg" alt=""> <span>Compartilhar tela</span></button><button id="leave-call-btn" class="dock-button danger"><img class="ui-icon" src="icons/phone-off.svg" alt=""> <span>Sair</span></button></div></div>
+  </div>
+
+  <dialog id="source-dialog" class="source-dialog"><form method="dialog"><div class="dialog-title"><div><p class="eyebrow">COMPARTILHAR TELA</p><h2>O que você quer mostrar?</h2></div><button value="cancel" class="close-dialog" aria-label="Fechar">×</button></div><div id="source-list" class="source-list"></div><div class="dialog-footer"><label class="share-audio-option"><input id="share-audio" type="checkbox"> Compartilhar áudio do computador</label><small id="share-audio-note">Inclui sons de outros aplicativos. Deixe desmarcado para transmitir sem áudio.</small><span>Seu compartilhamento poderá ser visto por todos na sala.</span></div></form></dialog>
+  <div id="toast" class="toast hidden" role="status"></div>
+  <script src="../node_modules/socket.io-client/dist/socket.io.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="background" x1="120" y1="70" x2="900" y2="1000" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8779F9"/>
+      <stop offset=".55" stop-color="#6455DA"/>
+      <stop offset="1" stop-color="#4538A0"/>
+    </linearGradient>
+    <linearGradient id="bubble" x1="315" y1="330" x2="724" y2="676" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#E8E8FF"/>
+    </linearGradient>
+  </defs>
+  <rect x="32" y="32" width="960" height="960" rx="225" fill="url(#background)"/>
+  <ellipse cx="512" cy="518" rx="360" ry="203" transform="rotate(-28 512 518)" fill="none" stroke="#C9C4FF" stroke-width="39" opacity=".94"/>
+  <path d="M376 336h274c70 0 122 53 122 120v126c0 69-53 121-122 121H505l-112 72c-21 14-46-1-46-25v-60c-55-16-94-62-94-111V459c0-69 52-123 123-123Z" fill="url(#bubble)"/>
+  <circle cx="438" cy="521" r="29" fill="#6A5BE0"/>
+  <circle cx="585" cy="521" r="29" fill="#6A5BE0"/>
+  <circle cx="814" cy="357" r="61" fill="#7AE5D3" stroke="#F2F2FF" stroke-width="19"/>
+</svg>
