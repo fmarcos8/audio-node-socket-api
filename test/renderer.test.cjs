@@ -34,9 +34,14 @@ test('navegação, cartões de câmera e tela com janela separada e configuraç�
   assert.equal($('voice-stage').classList.contains('hidden'), false);
   assert.equal($('channel-title').textContent, 'Sala geral');
   assert.equal($('voice-stage-name').textContent, 'Pessoas na chamada');
-  assert.equal($('media-dock').parentElement.className, 'topbar');
+  assert.equal($('media-dock').parentElement.className, 'main');
+  assert.equal($('media-dock').previousElementSibling, $('voice-stage'));
+  assert.equal($('call-grid').parentElement, $('voice-stage'));
   assert.equal($('app').classList.contains('voice-view'), true);
   assert.equal(window.getComputedStyle($('media-dock')).position, 'static');
+  assert.equal(window.getComputedStyle($('call-grid')).display, 'grid');
+  assert.equal(window.getComputedStyle($('voice-tiles')).display, 'contents');
+  assert.equal(window.getComputedStyle($('call-grid')).overflowY, 'auto');
   assert.equal(window.getComputedStyle(window.document.querySelector('.main')).paddingBottom, '0px');
   const slider = window.document.querySelector('.voice-tile[data-peer-id="outro"] input[type="range"]');
   assert.equal(slider.value, '100');
@@ -54,6 +59,8 @@ test('navegação, cartões de câmera e tela com janela separada e configuraç�
   assert.equal(window.document.querySelector('.voice-tile[data-peer-id="outro"]').classList.contains('speaking'), true);
   assert.equal($('stream-outro').querySelector('video').playCalled, true);
   assert.equal($('stream-outro').parentElement, $('streams'));
+  assert.equal($('streams').parentElement, $('call-grid'));
+  assert.equal(window.getComputedStyle($('streams')).display, 'contents');
   assert.equal(window.getComputedStyle($('streams')).position, 'static');
   const maximize = $('stream-outro').querySelector('.stream-maximize');
   maximize.click();
