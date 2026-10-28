@@ -78,12 +78,12 @@ app.whenReady().then(() => {
     return true;
   });
   ipcMain.handle('stream:open', async (event, id) => {
-    if (event.sender !== window?.webContents || typeof id !== 'string' || !/^(self|[\w-]{1,64})$/.test(id)) return false;
+    if (event.sender !== window?.webContents || typeof id !== 'string' || !/^(camera:)?(self|[\w-]{1,64})$/.test(id)) return false;
     const existing = popouts.get(id);
     if (existing && !existing.isDestroyed()) { existing.focus(); existing.maximize(); return true; }
     const popup = new BrowserWindow({
       width: 1100, height: 720, minWidth: 480, minHeight: 320,
-      title: 'Tela compartilhada · Órbita', backgroundColor: '#101117',
+      title: `${id.startsWith('camera:') ? 'Webcam' : 'Tela compartilhada'} · Órbita`, backgroundColor: '#101117',
       icon: join(__dirname, '../assets/orbita-icon.png'),
       webPreferences: { preload: join(__dirname, 'stream-preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true }
     });

@@ -76,7 +76,7 @@ function createChatServer({ port = 3000, host = '0.0.0.0', password, dataDir = j
     catch (error) { if (error.code !== 'ENOENT') console.error('Falha ao remover anexo:', error); }
   };
   const members = room => [...users.entries()].filter(([, user]) => user.voice === room)
-    .map(([id, user]) => ({ id, name: user.name, profileId: profileIdFor(user.ownerKey), avatar: avatarFor(user.ownerKey), sharing: user.sharing, muted: user.muted }));
+    .map(([id, user]) => ({ id, name: user.name, profileId: profileIdFor(user.ownerKey), avatar: avatarFor(user.ownerKey), sharing: user.sharing, cameraStreamId: user.cameraStreamId, muted: user.muted }));
   const roster = () => Object.fromEntries(VOICES.map(({ id }) => [id, members(id)]));
   const leaveVoice = socket => {
     const user = users.get(socket.id);
@@ -85,6 +85,7 @@ function createChatServer({ port = 3000, host = '0.0.0.0', password, dataDir = j
     socket.leave(`voice:${room}`);
     user.voice = null;
     user.sharing = false;
+    user.cameraStreamId = null;
     io.to(`voice:${room}`).emit('voice:peer-left', { id: socket.id });
     io.emit('voice:roster', roster());
   };
@@ -103,7 +104,7 @@ function createChatServer({ port = 3000, host = '0.0.0.0', password, dataDir = j
 
   io.on('connection', socket => {
     console.info(`[${new Date().toISOString()}] ${socket.data.name} conectado (${socket.id})`);
-    users.set(socket.id, { name: socket.data.name, ownerKey: socket.data.ownerKey, voice: null, sharing: false, muted: false, lastMessage: 0 });
+    users.set(socket.id, { name: socket.data.name, ownerKey: socket.data.ownerKey, voice: null, sharing: false, cameraStreamId: null, muted: false, lastMessage: 0 });
     const visible = Object.fromEntries(CHANNELS.map(({ id }) =>
       [id, messages[id].map(message => publicMessage(message, socket, false))]));
     const avatars = {};
@@ -230,6 +231,8 @@ function createChatServer({ port = 3000, host = '0.0.0.0', password, dataDir = j
       const user = users.get(socket.id);
       if (!user?.voice) return;
       if (typeof state?.sharing === 'boolean') user.sharing = state.sharing;
+      if (state?.cameraStreamId === null || (typeof state?.cameraStreamId === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(state.cameraStreamId)))
+        user.cameraStreamId = state.cameraStreamId;
       if (typeof state?.muted === 'boolean') user.muted = state.muted;
       io.emit('voice:roster', roster());
     });

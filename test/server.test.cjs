@@ -107,6 +107,12 @@ test('autenticação, chat, salas, sinalização e persistência', async () => {
     const signal = once(bia, 'rtc:signal');
     ana.emit('rtc:signal', { to: bia.id, candidate: { candidate: 'teste' } });
     assert.equal((await signal).from, ana.id);
+    let rosterUpdate = once(bia, 'voice:roster');
+    ana.emit('voice:state', { cameraStreamId: 'camera-stream-1' });
+    assert.equal((await rosterUpdate)['sala-geral'].find(member => member.id === ana.id).cameraStreamId, 'camera-stream-1');
+    rosterUpdate = once(bia, 'voice:roster');
+    ana.emit('voice:state', { cameraStreamId: null });
+    assert.equal((await rosterUpdate)['sala-geral'].find(member => member.id === ana.id).cameraStreamId, null);
     ana.emit('voice:leave');
     assert.equal((await once(bia, 'voice:peer-left')).id, ana.id);
 

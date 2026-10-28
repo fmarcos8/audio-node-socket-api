@@ -5,6 +5,10 @@ const SCREEN_PRESETS = {
   balanced: { width: 1280, height: 720, fps: 25, bitrate: 2500000 },
   quality: { width: 1920, height: 1080, fps: 30, bitrate: 4500000 }
 };
+const CAMERA_FILTERS = {
+  none: 'none', grayscale: 'grayscale(1)', sepia: 'sepia(1)',
+  warm: 'sepia(.35) saturate(1.4)', contrast: 'contrast(1.5)', blur: 'blur(2px)'
+};
 const state = {
   socket: null, name: '', channel: 'geral', channels: [], voices: [], messages: {}, avatars: {}, roster: {},
   voice: null, mic: null, screen: null, muted: false, deafened: false, peers: new Map(), peerFailures: new Map(),
@@ -12,7 +16,9 @@ const state = {
   identity: '', pendingFile: null, audioContext: null, meters: new Map(), meterTimer: null,
   view: 'text', previousView: 'text', fileLimitMb: 8, theme: 'dark', accent: 'violet', accentColor: '#8171f1', avatar: null, shareQuality: 'performance',
   popoutPeers: new Map(), pendingSignals: [], speakingLevels: new Map(), remoteSpeaking: new Map(),
-  volumes: {}, voiceJoinPending: null, joiningRoom: null, rejoinRoom: null, voiceResumeId: 0
+  volumes: {}, voiceJoinPending: null, joiningRoom: null, rejoinRoom: null, voiceResumeId: 0,
+  camera: null, cameraSource: null, cameraInput: null, cameraCanvas: null, cameraTimer: null,
+  cameraFilter: 'none', cameraDevice: '', cameraBusy: false, videoStreams: new Map()
 };
 
 function volumeKey(member) { return `${state.serverUrl}:${member.profileId || member.id}`; }
@@ -106,6 +112,7 @@ function renderChannels() {
       const avatar = make('span', 'mini-avatar'); setAvatar(avatar, member.avatar, member.name);
       row.append(avatar, make('span', '', member.name));
       if (member.sharing) row.append(icon('monitor', 'ui-icon member-state'));
+      if (member.cameraStreamId) row.append(icon('video', 'ui-icon member-state'));
       if (member.muted) row.append(icon('mic-off', 'ui-icon member-state'));
       list.append(row);
     }
@@ -127,9 +134,10 @@ function renderVoiceStage() {
     const tile = make('div', 'voice-tile'); tile.dataset.peerId = member.id;
     const avatar = make('div', 'voice-tile-avatar'); setAvatar(avatar, member.avatar, member.name);
     const name = make('strong', '', member.name);
-    const status = make('small', '', member.sharing ? 'Transmitindo tela' : member.muted ? 'Microfone desligado' : 'Na sala de voz');
+    const status = make('small', '', member.sharing ? 'Transmitindo tela' : member.cameraStreamId ? 'Câmera ligada' : member.muted ? 'Microfone desligado' : 'Na sala de voz');
     tile.append(avatar, name, status);
     if (member.sharing) tile.append(icon('monitor', 'ui-icon voice-tile-state'));
+    if (member.cameraStreamId) tile.append(icon('video', 'ui-icon voice-tile-state'));
     if (member.id !== state.socket?.id) {
       const control = make('label', 'peer-volume');
       const value = state.volumes[volumeKey(member)] ?? 100;
@@ -264,7 +272,7 @@ function renderActivity() {
     const row = make('div', 'activity-person');
     row.dataset.peerId = member.id;
     const info = make('div');
-    info.append(make('strong', '', member.name), make('small', '', member.sharing ? '▣ Compartilhando tela' : member.muted ? 'Microfone desligado' : 'Na conversa'));
+    info.append(make('strong', '', member.name), make('small', '', member.sharing ? '▣ Compartilhando tela' : member.cameraStreamId ? 'Câmera ligada' : member.muted ? 'Microfone desligado' : 'Na conversa'));
     const avatar = make('div', 'avatar'); setAvatar(avatar, member.avatar, member.name);
     row.append(avatar, info);
     box.append(row);
@@ -288,6 +296,10 @@ function updateVoiceUi() {
   $('deafen-btn').title = state.deafened ? 'Ativar áudio recebido' : 'Desativar áudio recebido';
   $('share-btn').classList.toggle('active', !!state.screen);
   $('share-btn').querySelector('span').textContent = state.screen ? 'Parar transmissão' : 'Compartilhar tela';
+  $('camera-btn').disabled = !room || state.cameraBusy;
+  $('camera-btn').classList.toggle('active', !!state.camera);
+  $('camera-btn').setAttribute('aria-pressed', String(!!state.camera));
+  $('camera-btn').querySelector('span').textContent = state.camera ? 'Desligar câmera' : 'Ligar câmera';
   if (room) { $('call-room').textContent = room.name; $('dock-title').textContent = room.name; }
   renderChannels();
   renderView();
@@ -382,6 +394,7 @@ function createPeer(id) {
     const sender = pc.addTrack(track, state.screen);
     if (track.kind === 'video') configureScreenSender(sender);
   }
+  if (state.camera) for (const track of state.camera.getVideoTracks()) pc.addTrack(track, state.camera);
   pc.onnegotiationneeded = async () => {
     try {
       peer.makingOffer = true;
@@ -393,7 +406,7 @@ function createPeer(id) {
   pc.onicecandidate = ({ candidate }) => {
     if (candidate) state.socket.emit('rtc:signal', { to: id, candidate: candidate.toJSON() });
   };
-  pc.ontrack = ({ track }) => {
+  pc.ontrack = ({ track, streams }) => {
     const stream = new MediaStream([track]);
     if (track.kind === 'audio') {
       let audio = [...document.querySelectorAll('audio[data-audio-peer-id]')]
@@ -411,9 +424,13 @@ function createPeer(id) {
       playAudio();
       if (!state.meters.has(id)) watchAudio(id, stream);
     } else {
-      showStream(id, stream);
-      track.onunmute = () => showStream(id, stream);
-      track.onended = () => hideStream(id);
+      const media = streams?.[0] || stream;
+      const videos = state.videoStreams.get(id) || new Map();
+      videos.set(media.id, media);
+      state.videoStreams.set(id, videos);
+      renderRemoteVideo(id, media);
+      track.onunmute = () => renderRemoteVideo(id, media);
+      track.onended = () => { videos.delete(media.id); hideStream(id, 'camera'); hideStream(id); for (const video of videos.values()) renderRemoteVideo(id, video); };
     }
   };
   pc.onconnectionstatechange = () => {
@@ -486,23 +503,36 @@ function closePeer(id) {
   refreshSpeakingUi();
   peer?.pc.close();
   state.peers.delete(id);
+  state.videoStreams.delete(id);
   document.querySelectorAll('audio[data-audio-peer-id]').forEach(audio => {
     if (audio.dataset.audioPeerId === id) audio.remove();
   });
   hideStream(id);
+  hideStream(id, 'camera');
 }
-function showStream(id, stream) {
-  let card = document.getElementById(`stream-${id}`);
+function renderRemoteVideo(id, stream) {
+  const member = (state.roster[state.voice] || []).find(person => person.id === id);
+  const kind = member?.cameraStreamId === stream.id ? 'camera' : 'screen';
+  if (kind === 'screen' && member && !member.sharing) return;
+  const other = document.getElementById(kind === 'camera' ? `stream-${id}` : `camera-${id}`);
+  if (other?.querySelector('video')?.srcObject === stream)
+    hideStream(id, kind === 'camera' ? 'screen' : 'camera');
+  showStream(id, stream, kind);
+}
+function showStream(id, stream, kind = 'screen') {
+  const mediaId = kind === 'camera' ? `camera-${id}` : `stream-${id}`;
+  const popoutId = kind === 'camera' ? `camera:${id}` : id;
+  let card = document.getElementById(mediaId);
   if (!card) {
-    card = make('div', 'stream-card'); card.id = `stream-${id}`;
+    card = make('div', 'stream-card'); card.id = mediaId;
     const footer = make('div', 'stream-footer');
     const maximize = make('button', 'stream-maximize');
     maximize.type = 'button'; maximize.title = 'Abrir em outra janela'; maximize.append(icon('expand'));
     maximize.onclick = async () => {
-      try { if (!await orbita.openStream(id)) notify('Não foi possível abrir a transmissão.'); }
+      try { if (!await orbita.openStream(popoutId)) notify('Não foi possível abrir a transmissão.'); }
       catch (error) { notify(error.message || 'Não foi possível abrir a transmissão.'); }
     };
-    footer.append(make('span', '', 'Tela compartilhada'), maximize);
+    footer.append(make('span', '', kind === 'camera' ? 'Webcam' : 'Tela compartilhada'), maximize);
     card.append(make('video'), footer);
     $('streams').append(card);
   }
@@ -510,21 +540,28 @@ function showStream(id, stream) {
   video.autoplay = true;
   video.muted = true;
   video.playsInline = true;
-  if (video.srcObject !== stream) video.srcObject = stream;
+  const track = stream.getVideoTracks()[0];
+  if (video.srcObject !== stream || video.displayedTrack !== track) {
+    video.srcObject = null;
+    video.srcObject = stream;
+    video.displayedTrack = track;
+  }
   video.play().catch(error => console.warn('Reprodução de vídeo:', error));
   $('streams').classList.remove('hidden');
   $('voice-hint').classList.add('hidden');
 }
-function hideStream(id) {
-  state.popoutPeers.get(id)?.pc.close();
-  state.popoutPeers.delete(id);
-  orbita.closeStream?.(id);
-  document.getElementById(`stream-${id}`)?.remove();
+function hideStream(id, kind = 'screen') {
+  const popoutId = kind === 'camera' ? `camera:${id}` : id;
+  state.popoutPeers.get(popoutId)?.pc.close();
+  state.popoutPeers.delete(popoutId);
+  orbita.closeStream?.(popoutId);
+  document.getElementById(kind === 'camera' ? `camera-${id}` : `stream-${id}`)?.remove();
   $('streams').classList.toggle('hidden', !$('streams').children.length);
   $('voice-hint').classList.toggle('hidden', !!$('streams').children.length);
 }
 function mirrorStream(id) {
-  const track = document.getElementById(`stream-${id}`)?.querySelector('video')?.srcObject?.getVideoTracks()[0];
+  const cardId = id.startsWith('camera:') ? `camera-${id.slice(7)}` : `stream-${id}`;
+  const track = document.getElementById(cardId)?.querySelector('video')?.srcObject?.getVideoTracks()[0];
   if (!track) { orbita.closeStream(id); return; }
   state.popoutPeers.get(id)?.pc.close();
   const pc = new RTCPeerConnection();
@@ -555,6 +592,108 @@ orbita.onStreamSignal?.(async (id, signal) => {
   } catch (error) { console.warn('Janela de transmissão:', error); }
 });
 orbita.onStreamClosed?.(id => { state.popoutPeers.get(id)?.pc.close(); state.popoutPeers.delete(id); });
+
+async function listCameras() {
+  if (!globalThis.navigator?.mediaDevices?.enumerateDevices) return;
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const select = $('camera-device');
+    const selected = state.cameraDevice;
+    const defaultOption = make('option', '', 'Padrão do sistema'); defaultOption.value = '';
+    select.replaceChildren(defaultOption);
+    for (const [index, device] of devices.filter(item => item.kind === 'videoinput').entries()) {
+      const option = make('option', '', device.label || `Câmera ${index + 1}`);
+      option.value = device.deviceId; select.append(option);
+    }
+    select.value = [...select.options].some(option => option.value === selected) ? selected : '';
+  } catch (error) { console.warn('Lista de câmeras indisponível:', error); }
+}
+
+async function cameraOutput(filter) {
+  const rawTrack = state.cameraSource.getVideoTracks()[0];
+  if (filter === 'none') return rawTrack;
+  const video = state.cameraInput || make('video');
+  video.srcObject = state.cameraSource; video.muted = true; video.playsInline = true;
+  await video.play();
+  const canvas = document.createElement('canvas');
+  const size = rawTrack.getSettings?.() || {};
+  canvas.width = size.width || 640; canvas.height = size.height || 360;
+  const context = canvas.getContext('2d');
+  if (!context || !canvas.captureStream) throw new Error('Filtros indisponíveis neste dispositivo.');
+  state.cameraInput = video; state.cameraCanvas = canvas;
+  const draw = () => {
+    if (state.cameraCanvas !== canvas) return;
+    context.filter = CAMERA_FILTERS[state.cameraFilter];
+    if (video.readyState >= 2) context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    state.cameraTimer = setTimeout(draw, 1000 / 15);
+  };
+  draw();
+  return canvas.captureStream(15).getVideoTracks()[0];
+}
+
+async function changeCameraFilter(filter) {
+  if (!Object.hasOwn(CAMERA_FILTERS, filter)) return;
+  state.cameraFilter = filter;
+  localStorage.setItem('orbita-camera-filter', filter);
+  if (!state.camera) return;
+  const previous = state.camera.getVideoTracks()[0];
+  clearTimeout(state.cameraTimer); state.cameraTimer = null; state.cameraCanvas = null;
+  try {
+    const next = await cameraOutput(filter);
+    for (const { pc } of state.peers.values()) {
+      const sender = pc.getSenders().find(item => item.track === previous);
+      if (sender) await sender.replaceTrack(next);
+    }
+    state.camera.removeTrack(previous);
+    state.camera.addTrack(next);
+    if (previous !== state.cameraSource.getVideoTracks()[0]) previous.stop();
+    showStream('self', state.camera, 'camera');
+  } catch (error) {
+    state.cameraFilter = 'none'; $('camera-filter').value = 'none';
+    notify(error.message || 'Não foi possível aplicar o filtro.');
+  }
+}
+
+function stopCamera() {
+  if (!state.cameraSource && !state.camera) return;
+  const camera = state.camera;
+  state.camera = null;
+  clearTimeout(state.cameraTimer); state.cameraTimer = null; state.cameraCanvas = null;
+  for (const { pc } of state.peers.values())
+    for (const sender of pc.getSenders()) if (camera?.getTracks().includes(sender.track)) pc.removeTrack(sender);
+  camera?.getVideoTracks().forEach(track => track.stop());
+  state.cameraSource?.getTracks().forEach(track => track.stop());
+  state.cameraInput?.pause();
+  if (state.cameraInput) state.cameraInput.srcObject = null;
+  state.cameraInput = null; state.cameraSource = null;
+  hideStream('self', 'camera');
+  if (state.socket?.connected) state.socket.emit('voice:state', { cameraStreamId: null });
+  updateVoiceUi();
+}
+
+async function toggleCamera() {
+  if (state.cameraBusy || !state.voice) return;
+  if (state.camera) { stopCamera(); return; }
+  state.cameraBusy = true; updateVoiceUi();
+  try {
+    const source = await navigator.mediaDevices.getUserMedia({ audio: false, video: {
+      width: { ideal: 640 }, height: { ideal: 360 }, frameRate: { ideal: 15, max: 24 },
+      ...(state.cameraDevice ? { deviceId: { exact: state.cameraDevice } } : {})
+    } });
+    if (!state.voice) { source.getTracks().forEach(track => track.stop()); return; }
+    state.cameraSource = source;
+    source.getVideoTracks()[0].onended = stopCamera;
+    const track = await cameraOutput(state.cameraFilter);
+    if (!state.voice) { track.stop(); stopCamera(); return; }
+    state.camera = new MediaStream([track]);
+    state.socket.emit('voice:state', { cameraStreamId: state.camera.id });
+    for (const { pc } of state.peers.values()) pc.addTrack(track, state.camera);
+    showStream('self', state.camera, 'camera');
+    document.querySelector('#camera-self .stream-footer span').textContent = 'Sua webcam';
+    await listCameras();
+  } catch (error) { stopCamera(); notify(`Não foi possível ligar a webcam: ${error.message}`); }
+  finally { state.cameraBusy = false; updateVoiceUi(); }
+}
 
 async function joinVoice(room) {
   if (state.voiceJoinPending) {
@@ -621,7 +760,7 @@ async function restoreVoice(socket, room) {
       if (state.socket !== socket || !socket.connected || state.voice !== room || state.voiceResumeId !== resumeId) return;
       state.rejoinRoom = null;
       if (state.mic) watchAudio(socket.id, state.mic);
-      socket.emit('voice:state', { muted: state.muted, sharing: !!state.screen });
+      socket.emit('voice:state', { muted: state.muted, sharing: !!state.screen, cameraStreamId: state.camera?.id || null });
       updateVoiceUi();
       for (const member of result.peers) createPeer(member.id);
       for (const signal of state.pendingSignals.splice(0)) receiveSignal(signal);
@@ -652,6 +791,7 @@ function leaveVoice() {
   state.rejoinRoom = null;
   state.voiceResumeId++;
   stopShare();
+  stopCamera();
   if (state.socket?.connected) state.socket.emit('voice:leave');
   for (const id of [...state.peers.keys()]) closePeer(id);
   stopWatching(state.socket?.id);
@@ -814,6 +954,8 @@ function connect(url, name, code) {
     for (const [id] of state.peers) {
       const member = (roster[state.voice] || []).find(person => person.id === id);
       if (member && !member.sharing) hideStream(id);
+      if (member && !member.cameraStreamId) hideStream(id, 'camera');
+      for (const stream of state.videoStreams.get(id)?.values() || []) renderRemoteVideo(id, stream);
     }
     renderChannels();
   });
@@ -985,6 +1127,13 @@ $('avatar-remove').onclick = async () => {
 $('disconnect-btn').onclick = leaveVoice;
 $('leave-call-btn').onclick = leaveVoice;
 $('share-btn').onclick = chooseSource;
+$('camera-btn').onclick = toggleCamera;
+$('camera-filter').onchange = () => changeCameraFilter($('camera-filter').value);
+$('camera-device').onchange = async () => {
+  state.cameraDevice = $('camera-device').value;
+  localStorage.setItem('orbita-camera-device', state.cameraDevice);
+  if (state.camera) { stopCamera(); await toggleCamera(); }
+};
 $('mute-btn').onclick = () => {
   state.muted = !state.muted;
   state.mic?.getAudioTracks().forEach(track => { track.enabled = !state.muted; });
@@ -1044,6 +1193,9 @@ try {
   if (validAccentColor(savedColor)) state.accentColor = savedColor.toLowerCase();
   const quality = localStorage.getItem('orbita-share-quality');
   if (Object.hasOwn(SCREEN_PRESETS, quality)) state.shareQuality = quality;
+  const cameraFilter = localStorage.getItem('orbita-camera-filter');
+  if (Object.hasOwn(CAMERA_FILTERS, cameraFilter)) state.cameraFilter = cameraFilter;
+  state.cameraDevice = localStorage.getItem('orbita-camera-device') || '';
   const volumes = JSON.parse(localStorage.getItem('orbita-volumes') || '{}');
   if (volumes && typeof volumes === 'object' && !Array.isArray(volumes)) state.volumes = volumes;
 } catch { /* Sem conexão anterior. */ }
@@ -1051,6 +1203,8 @@ $('file-limit').value = state.fileLimitMb;
 $('attachment-btn').title = `Anexar arquivo (até ${state.fileLimitMb} MB)`;
 applyAppearance();
 $('share-quality').value = state.shareQuality;
+$('camera-filter').value = state.cameraFilter;
+listCameras();
 if (!orbita.canShareSystemAudio) {
   $('share-audio').disabled = true;
   $('share-audio-note').textContent = 'Áudio do computador disponível no Windows.';

@@ -171,6 +171,43 @@ test('navegação, miniatura da tela em janela separada e configurações', asyn
   };`, context);
   await Promise.all([vm.runInContext('joinVoice("sala-geral")', context), vm.runInContext('joinVoice("sala-geral")', context)]);
   assert.equal(context.joinCalls, 1);
+  context.rawCameraTrack = { kind: 'video', getSettings: () => ({ width: 640, height: 360 }), stop: () => { context.cameraStopped = true; } };
+  context.filteredTrack = { kind: 'video', stop: () => {} };
+  context.cameraSource = { getVideoTracks: () => [context.rawCameraTrack], getTracks: () => [context.rawCameraTrack] };
+  context.navigator.mediaDevices.getUserMedia = async () => context.cameraSource;
+  context.navigator.mediaDevices.enumerateDevices = async () => [{ kind: 'videoinput', deviceId: 'cam-1', label: 'Webcam USB' }];
+  context.MediaStream = class {
+    constructor(tracks, id = 'camera-stream') { this.tracks = tracks; this.id = id; }
+    getVideoTracks() { return this.tracks; }
+    getTracks() { return this.tracks; }
+    removeTrack(track) { this.tracks = this.tracks.filter(item => item !== track); }
+    addTrack(track) { this.tracks.push(track); }
+  };
+  Object.defineProperty(window.HTMLVideoElement.prototype, 'srcObject', {
+    configurable: true, get() { return this.testStream || null; }, set(stream) { this.testStream = stream; }
+  });
+  context.cameraSender = { track: context.rawCameraTrack, replaceTrack: async track => { context.cameraSender.track = track; } };
+  context.cameraPeer = { pc: { addTrack: () => context.cameraSender, getSenders: () => [context.cameraSender], removeTrack: () => {} } };
+  window.HTMLCanvasElement.prototype.getContext = () => ({ drawImage: () => {}, filter: 'none' });
+  window.HTMLCanvasElement.prototype.captureStream = () => ({ getVideoTracks: () => [context.filteredTrack] });
+  vm.runInContext(`state.peers.clear(); state.peers.set('outro', cameraPeer);`, context);
+  await vm.runInContext('toggleCamera()', context);
+  assert.ok($('camera-self'), $('toast').textContent);
+  assert.equal($('camera-btn').getAttribute('aria-pressed'), 'true');
+  $('camera-filter').value = 'sepia'; await $('camera-filter').onchange();
+  assert.equal(context.cameraSender.track, context.filteredTrack);
+  assert.equal(window.localStorage.getItem('orbita-camera-filter'), 'sepia');
+  context.remoteCamera = new context.MediaStream([context.filteredTrack]);
+  context.remoteScreen = new context.MediaStream([context.videoTrack], 'screen-stream');
+  vm.runInContext(`state.roster['sala-geral'] = [
+    { id: 'eu', name: 'Ana' },
+    { id: 'outro', name: 'Bia', cameraStreamId: 'camera-stream', sharing: true }
+  ]; renderRemoteVideo('outro', remoteCamera); renderRemoteVideo('outro', remoteScreen);`, context);
+  assert.ok($('camera-outro'));
+  assert.equal($('stream-outro').querySelector('video').srcObject, context.remoteScreen);
+  vm.runInContext('stopCamera()', context);
+  assert.equal($('camera-self'), null);
+  assert.equal(context.cameraStopped, true);
   await window.happyDOM.abort();
 });
 

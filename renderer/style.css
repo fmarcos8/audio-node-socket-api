@@ -101,3 +101,6 @@
 .theme-light .stream-maximize .ui-icon{filter:invert(28%)}
 .composer button[type=submit] .ui-icon,.dock-button.active .ui-icon{filter:var(--accent-icon-filter, invert(100%))}
 .theme-light .voice-tile-avatar{color:#fff}.theme-light .call-status,.theme-light .dock-live,.theme-light .voice-member.speaking{color:#087c56}
+.stream-card[id^="camera-"] video{object-fit:cover;transform:scaleX(-1)}
+.dock-actions{flex-wrap:wrap;justify-content:flex-end}
+@media(max-width:850px){.media-dock{padding:8px;gap:5px}.dock-button{padding:8px;font-size:10px}}
