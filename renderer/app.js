@@ -9,6 +9,12 @@ const CAMERA_FILTERS = {
   none: 'none', grayscale: 'grayscale(1)', sepia: 'sepia(1)',
   warm: 'sepia(.35) saturate(1.4)', contrast: 'contrast(1.5)', blur: 'blur(2px)'
 };
+const CAMERA_RESOLUTIONS = {
+  '360p': { width: 640, height: 360, bitrate: 800000 },
+  '720p': { width: 1280, height: 720, bitrate: 2000000 },
+  '1080p': { width: 1920, height: 1080, bitrate: 3500000 }
+};
+const CAMERA_FRAME_RATES = [15, 24, 30];
 const state = {
   socket: null, name: '', channel: 'geral', channels: [], voices: [], messages: {}, avatars: {}, roster: {},
   voice: null, mic: null, screen: null, muted: false, deafened: false, peers: new Map(), peerFailures: new Map(),
@@ -18,7 +24,8 @@ const state = {
   popoutPeers: new Map(), pendingSignals: [], speakingLevels: new Map(), remoteSpeaking: new Map(),
   volumes: {}, voiceJoinPending: null, joiningRoom: null, rejoinRoom: null, voiceResumeId: 0,
   camera: null, cameraSource: null, cameraInput: null, cameraCanvas: null, cameraTimer: null,
-  cameraFilter: 'none', cameraDevice: '', cameraBusy: false, videoStreams: new Map()
+  cameraFilter: 'none', cameraDevice: '', cameraResolution: '360p', cameraFps: 15,
+  cameraBusy: false, videoStreams: new Map()
 };
 
 function volumeKey(member) { return `${state.serverUrl}:${member.profileId || member.id}`; }
@@ -363,6 +370,21 @@ async function configureScreenSender(sender) {
   catch (error) { console.warn('Limite do vídeo indisponível:', error); }
 }
 
+async function configureCameraSender(sender) {
+  if (!sender?.track || typeof sender.getParameters !== 'function') return;
+  try {
+    const params = sender.getParameters();
+    if (!params.encodings?.length) return;
+    const preset = CAMERA_RESOLUTIONS[state.cameraResolution];
+    for (const encoding of params.encodings) {
+      encoding.maxFramerate = state.cameraFps;
+      encoding.maxBitrate = preset.bitrate;
+      encoding.scaleResolutionDownBy = 1;
+    }
+    await sender.setParameters(params);
+  } catch (error) { console.warn('Limite da webcam indisponível:', error); }
+}
+
 async function applyScreenQuality() {
   const track = state.screen?.getVideoTracks()[0];
   if (!track) return;
@@ -394,7 +416,8 @@ function createPeer(id) {
     const sender = pc.addTrack(track, state.screen);
     if (track.kind === 'video') configureScreenSender(sender);
   }
-  if (state.camera) for (const track of state.camera.getVideoTracks()) pc.addTrack(track, state.camera);
+  if (state.camera) for (const track of state.camera.getVideoTracks())
+    configureCameraSender(pc.addTrack(track, state.camera));
   pc.onnegotiationneeded = async () => {
     try {
       peer.makingOffer = true;
@@ -441,7 +464,10 @@ function createPeer(id) {
       document.querySelectorAll('audio[data-audio-peer-id]').forEach(audio => {
         if (audio.dataset.audioPeerId === id) audio.play().catch(console.warn);
       });
-      for (const sender of pc.getSenders()) if (sender.track?.kind === 'video') configureScreenSender(sender);
+      for (const sender of pc.getSenders()) {
+        if (sender.track === state.camera?.getVideoTracks()[0]) configureCameraSender(sender);
+        else if (sender.track?.kind === 'video') configureScreenSender(sender);
+      }
     }
     if (['disconnected', 'failed'].includes(pc.connectionState) && !peer.restartTimer && !peer.recoveryTimer) {
       peer.restartTimer = setTimeout(() => {
@@ -574,7 +600,10 @@ function mirrorStream(id) {
   };
   pc.addTrack(track, new MediaStream([track]));
   pc.onconnectionstatechange = () => {
-    if (pc.connectionState === 'connected') for (const sender of pc.getSenders()) configureScreenSender(sender);
+    if (pc.connectionState === 'connected') for (const sender of pc.getSenders()) {
+      if (id.startsWith('camera:')) configureCameraSender(sender);
+      else configureScreenSender(sender);
+    }
   };
 }
 orbita.onStreamReady?.(mirrorStream);
@@ -617,7 +646,8 @@ async function cameraOutput(filter) {
   await video.play();
   const canvas = document.createElement('canvas');
   const size = rawTrack.getSettings?.() || {};
-  canvas.width = size.width || 640; canvas.height = size.height || 360;
+  const preset = CAMERA_RESOLUTIONS[state.cameraResolution];
+  canvas.width = size.width || preset.width; canvas.height = size.height || preset.height;
   const context = canvas.getContext('2d');
   if (!context || !canvas.captureStream) throw new Error('Filtros indisponíveis neste dispositivo.');
   state.cameraInput = video; state.cameraCanvas = canvas;
@@ -625,10 +655,35 @@ async function cameraOutput(filter) {
     if (state.cameraCanvas !== canvas) return;
     context.filter = CAMERA_FILTERS[state.cameraFilter];
     if (video.readyState >= 2) context.drawImage(video, 0, 0, canvas.width, canvas.height);
-    state.cameraTimer = setTimeout(draw, 1000 / 15);
+    state.cameraTimer = setTimeout(draw, 1000 / state.cameraFps);
   };
   draw();
-  return canvas.captureStream(15).getVideoTracks()[0];
+  // O limite de captura permanece em 30 FPS; o ritmo do desenho define a taxa escolhida.
+  return canvas.captureStream(30).getVideoTracks()[0];
+}
+
+async function applyCameraQuality() {
+  const track = state.cameraSource?.getVideoTracks()[0];
+  if (!track) return;
+  const preset = CAMERA_RESOLUTIONS[state.cameraResolution];
+  try {
+    await track.applyConstraints({
+      width: { ideal: preset.width }, height: { ideal: preset.height },
+      frameRate: { ideal: state.cameraFps, max: state.cameraFps }
+    });
+  } catch (error) {
+    console.warn('Qualidade da webcam indisponível:', error);
+    notify('A webcam não aceitou a qualidade escolhida; usando a mais próxima disponível.');
+  }
+  if (state.cameraCanvas) {
+    const size = track.getSettings?.() || {};
+    state.cameraCanvas.width = size.width || preset.width;
+    state.cameraCanvas.height = size.height || preset.height;
+  }
+  await Promise.all([...state.peers.values()].flatMap(({ pc }) => pc.getSenders()
+    .filter(sender => sender.track === state.camera?.getVideoTracks()[0]).map(configureCameraSender)));
+  await Promise.all([...state.popoutPeers.entries()].filter(([id]) => id.startsWith('camera:'))
+    .flatMap(([, { pc }]) => pc.getSenders().map(configureCameraSender)));
 }
 
 async function changeCameraFilter(filter) {
@@ -642,7 +697,7 @@ async function changeCameraFilter(filter) {
     const next = await cameraOutput(filter);
     for (const { pc } of state.peers.values()) {
       const sender = pc.getSenders().find(item => item.track === previous);
-      if (sender) await sender.replaceTrack(next);
+      if (sender) { await sender.replaceTrack(next); configureCameraSender(sender); }
     }
     state.camera.removeTrack(previous);
     state.camera.addTrack(next);
@@ -676,8 +731,10 @@ async function toggleCamera() {
   if (state.camera) { stopCamera(); return; }
   state.cameraBusy = true; updateVoiceUi();
   try {
+    const preset = CAMERA_RESOLUTIONS[state.cameraResolution];
     const source = await navigator.mediaDevices.getUserMedia({ audio: false, video: {
-      width: { ideal: 640 }, height: { ideal: 360 }, frameRate: { ideal: 15, max: 24 },
+      width: { ideal: preset.width }, height: { ideal: preset.height },
+      frameRate: { ideal: state.cameraFps, max: state.cameraFps },
       ...(state.cameraDevice ? { deviceId: { exact: state.cameraDevice } } : {})
     } });
     if (!state.voice) { source.getTracks().forEach(track => track.stop()); return; }
@@ -687,7 +744,7 @@ async function toggleCamera() {
     if (!state.voice) { track.stop(); stopCamera(); return; }
     state.camera = new MediaStream([track]);
     state.socket.emit('voice:state', { cameraStreamId: state.camera.id });
-    for (const { pc } of state.peers.values()) pc.addTrack(track, state.camera);
+    for (const { pc } of state.peers.values()) configureCameraSender(pc.addTrack(track, state.camera));
     showStream('self', state.camera, 'camera');
     document.querySelector('#camera-self .stream-footer span').textContent = 'Sua webcam';
     await listCameras();
@@ -1129,6 +1186,20 @@ $('leave-call-btn').onclick = leaveVoice;
 $('share-btn').onclick = chooseSource;
 $('camera-btn').onclick = toggleCamera;
 $('camera-filter').onchange = () => changeCameraFilter($('camera-filter').value);
+$('camera-resolution').onchange = async () => {
+  const resolution = $('camera-resolution').value;
+  if (!Object.hasOwn(CAMERA_RESOLUTIONS, resolution)) return;
+  state.cameraResolution = resolution;
+  localStorage.setItem('orbita-camera-resolution', resolution);
+  await applyCameraQuality();
+};
+$('camera-fps').onchange = async () => {
+  const fps = Number($('camera-fps').value);
+  if (!CAMERA_FRAME_RATES.includes(fps)) return;
+  state.cameraFps = fps;
+  localStorage.setItem('orbita-camera-fps', String(fps));
+  await applyCameraQuality();
+};
 $('camera-device').onchange = async () => {
   state.cameraDevice = $('camera-device').value;
   localStorage.setItem('orbita-camera-device', state.cameraDevice);
@@ -1195,6 +1266,10 @@ try {
   if (Object.hasOwn(SCREEN_PRESETS, quality)) state.shareQuality = quality;
   const cameraFilter = localStorage.getItem('orbita-camera-filter');
   if (Object.hasOwn(CAMERA_FILTERS, cameraFilter)) state.cameraFilter = cameraFilter;
+  const cameraResolution = localStorage.getItem('orbita-camera-resolution');
+  if (Object.hasOwn(CAMERA_RESOLUTIONS, cameraResolution)) state.cameraResolution = cameraResolution;
+  const cameraFps = Number(localStorage.getItem('orbita-camera-fps'));
+  if (CAMERA_FRAME_RATES.includes(cameraFps)) state.cameraFps = cameraFps;
   state.cameraDevice = localStorage.getItem('orbita-camera-device') || '';
   const volumes = JSON.parse(localStorage.getItem('orbita-volumes') || '{}');
   if (volumes && typeof volumes === 'object' && !Array.isArray(volumes)) state.volumes = volumes;
@@ -1204,6 +1279,8 @@ $('attachment-btn').title = `Anexar arquivo (até ${state.fileLimitMb} MB)`;
 applyAppearance();
 $('share-quality').value = state.shareQuality;
 $('camera-filter').value = state.cameraFilter;
+$('camera-resolution').value = state.cameraResolution;
+$('camera-fps').value = String(state.cameraFps);
 listCameras();
 if (!orbita.canShareSystemAudio) {
   $('share-audio').disabled = true;

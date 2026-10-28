@@ -171,7 +171,15 @@ test('navegação, miniatura da tela em janela separada e configurações', asyn
   };`, context);
   await Promise.all([vm.runInContext('joinVoice("sala-geral")', context), vm.runInContext('joinVoice("sala-geral")', context)]);
   assert.equal(context.joinCalls, 1);
-  context.rawCameraTrack = { kind: 'video', getSettings: () => ({ width: 640, height: 360 }), stop: () => { context.cameraStopped = true; } };
+  context.cameraSettings = { width: 640, height: 360 };
+  context.rawCameraTrack = {
+    kind: 'video', getSettings: () => context.cameraSettings,
+    applyConstraints: async limits => {
+      context.cameraLimits = limits;
+      context.cameraSettings = { width: limits.width.ideal, height: limits.height.ideal };
+    },
+    stop: () => { context.cameraStopped = true; }
+  };
   context.filteredTrack = { kind: 'video', stop: () => {} };
   context.cameraSource = { getVideoTracks: () => [context.rawCameraTrack], getTracks: () => [context.rawCameraTrack] };
   context.navigator.mediaDevices.getUserMedia = async () => context.cameraSource;
@@ -186,17 +194,38 @@ test('navegação, miniatura da tela em janela separada e configurações', asyn
   Object.defineProperty(window.HTMLVideoElement.prototype, 'srcObject', {
     configurable: true, get() { return this.testStream || null; }, set(stream) { this.testStream = stream; }
   });
-  context.cameraSender = { track: context.rawCameraTrack, replaceTrack: async track => { context.cameraSender.track = track; } };
+  context.cameraSender = {
+    track: context.rawCameraTrack,
+    replaceTrack: async track => { context.cameraSender.track = track; },
+    getParameters: () => ({ encodings: [{}] }),
+    setParameters: async params => { context.cameraEncoding = params.encodings[0]; }
+  };
   context.cameraPeer = { pc: { addTrack: () => context.cameraSender, getSenders: () => [context.cameraSender], removeTrack: () => {} } };
   window.HTMLCanvasElement.prototype.getContext = () => ({ drawImage: () => {}, filter: 'none' });
-  window.HTMLCanvasElement.prototype.captureStream = () => ({ getVideoTracks: () => [context.filteredTrack] });
+  window.HTMLCanvasElement.prototype.captureStream = fps => {
+    context.canvasCaptureRate = fps;
+    return { getVideoTracks: () => [context.filteredTrack] };
+  };
   vm.runInContext(`state.peers.clear(); state.peers.set('outro', cameraPeer);`, context);
   await vm.runInContext('toggleCamera()', context);
   assert.ok($('camera-self'), $('toast').textContent);
   assert.equal($('camera-btn').getAttribute('aria-pressed'), 'true');
+  $('camera-resolution').value = '720p'; await $('camera-resolution').onchange();
+  $('camera-fps').value = '30'; await $('camera-fps').onchange();
+  assert.equal(context.cameraLimits.width.ideal, 1280);
+  assert.equal(context.cameraLimits.frameRate.max, 30);
+  assert.equal(context.cameraEncoding.maxFramerate, 30);
+  assert.equal(context.cameraEncoding.maxBitrate, 2000000);
+  assert.equal(window.localStorage.getItem('orbita-camera-resolution'), '720p');
+  assert.equal(window.localStorage.getItem('orbita-camera-fps'), '30');
   $('camera-filter').value = 'sepia'; await $('camera-filter').onchange();
   assert.equal(context.cameraSender.track, context.filteredTrack);
+  assert.equal(context.canvasCaptureRate, 30);
+  assert.equal(vm.runInContext('state.cameraCanvas.width', context), 1280);
   assert.equal(window.localStorage.getItem('orbita-camera-filter'), 'sepia');
+  $('camera-resolution').value = '1080p'; await $('camera-resolution').onchange();
+  assert.equal(vm.runInContext('state.cameraCanvas.width', context), 1920);
+  assert.equal(context.cameraEncoding.maxBitrate, 3500000);
   context.remoteCamera = new context.MediaStream([context.filteredTrack]);
   context.remoteScreen = new context.MediaStream([context.videoTrack], 'screen-stream');
   vm.runInContext(`state.roster['sala-geral'] = [
