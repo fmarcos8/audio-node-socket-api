@@ -5,7 +5,7 @@ const { join } = require('node:path');
 const { webcrypto } = require('node:crypto');
 const vm = require('node:vm');
 
-test('navegação, miniatura da tela em janela separada e configurações', async () => {
+test('navegação, cartões de câmera e tela com janela separada e configurações', async () => {
   const { Window } = await import('happy-dom');
   const window = new Window({ url: 'http://localhost' });
   window.document.write(readFileSync(join(__dirname, '../renderer/index.html'), 'utf8'));
@@ -48,6 +48,8 @@ test('navegação, miniatura da tela em janela separada e configurações', asyn
   vm.runInContext(`state.remoteSpeaking.set('outro', true); refreshSpeakingUi(); showStream('outro', fakeStream);`, context);
   assert.equal(window.document.querySelector('.voice-tile[data-peer-id="outro"]').classList.contains('speaking'), true);
   assert.equal($('stream-outro').querySelector('video').playCalled, true);
+  assert.equal($('stream-outro').parentElement, $('streams'));
+  assert.equal(window.getComputedStyle($('streams')).position, 'static');
   const maximize = $('stream-outro').querySelector('.stream-maximize');
   maximize.click();
   await new Promise(resolve => setTimeout(resolve, 0));
@@ -209,6 +211,9 @@ test('navegação, miniatura da tela em janela separada e configurações', asyn
   vm.runInContext(`state.peers.clear(); state.peers.set('outro', cameraPeer);`, context);
   await vm.runInContext('toggleCamera()', context);
   assert.ok($('camera-self'), $('toast').textContent);
+  assert.equal($('camera-self').closest('.voice-tile').dataset.peerId, 'eu');
+  assert.equal($('streams').contains($('camera-self')), false);
+  assert.equal($('camera-self').parentElement.querySelector('.voice-tile-avatar').classList.contains('hidden'), true);
   assert.equal($('camera-btn').getAttribute('aria-pressed'), 'true');
   $('camera-resolution').value = '720p'; await $('camera-resolution').onchange();
   $('camera-fps').value = '30'; await $('camera-fps').onchange();
@@ -233,9 +238,18 @@ test('navegação, miniatura da tela em janela separada e configurações', asyn
     { id: 'outro', name: 'Bia', cameraStreamId: 'camera-stream', sharing: true }
   ]; renderRemoteVideo('outro', remoteCamera); renderRemoteVideo('outro', remoteScreen);`, context);
   assert.ok($('camera-outro'));
+  assert.equal($('camera-outro').closest('.voice-tile').dataset.peerId, 'outro');
+  assert.equal($('streams').contains($('camera-outro')), false);
   assert.equal($('stream-outro').querySelector('video').srcObject, context.remoteScreen);
+  const webcamCard = $('camera-outro');
+  vm.runInContext('renderVoiceStage()', context);
+  assert.equal($('camera-outro'), webcamCard);
+  $('camera-outro').querySelector('.stream-maximize').click();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(context.openedStream, 'camera:outro');
   vm.runInContext('stopCamera()', context);
   assert.equal($('camera-self'), null);
+  assert.equal(window.document.querySelector('.voice-tile[data-peer-id="eu"] .voice-tile-avatar').classList.contains('hidden'), false);
   assert.equal(context.cameraStopped, true);
   await window.happyDOM.abort();
 });

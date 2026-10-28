@@ -104,3 +104,29 @@
 .stream-card[id^="camera-"] video{object-fit:cover;transform:scaleX(-1)}
 .dock-actions{flex-wrap:wrap;justify-content:flex-end}
 @media(max-width:850px){.media-dock{padding:8px;gap:5px}.dock-button{padding:8px;font-size:10px}}
+
+/* A sala usa cartões grandes para pessoas e cartões próprios para telas. */
+.voice-stage{overflow-y:auto;overflow-x:hidden;padding:22px 26px 28px}
+.voice-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr));gap:16px;overflow:visible;padding:18px 0;flex:none}
+.voice-tile{width:100%;min-width:0;min-height:230px;aspect-ratio:16/10;flex:none;padding:0;gap:0;overflow:hidden;align-items:stretch;border-radius:16px;background:#2d2e3d}
+.voice-tile-visual{position:relative;flex:1;min-height:0;display:grid;place-items:center;overflow:hidden;background:#292a37}
+.voice-tile-avatar{width:clamp(68px,8vw,110px);height:clamp(68px,8vw,110px);font-size:32px;margin:0}
+.voice-tile-info{position:relative;z-index:1;width:100%;min-height:55px;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;padding:9px 14px;background:#303141}
+.voice-tile-info strong{font-size:13px;max-width:100%;white-space:nowrap}
+.voice-tile-info small{font-size:11px;text-align:left}
+.voice-tile-states{position:absolute;top:12px;left:12px;z-index:2;display:flex;gap:7px;background:#151621a8;padding:7px;border-radius:8px}
+.voice-tile-states .ui-icon{width:16px;height:16px}
+.voice-tile-camera{position:absolute;inset:0;background:#101117}
+.voice-tile-camera video{width:100%;height:100%;display:block;object-fit:cover}
+.voice-tile-camera .stream-maximize{position:absolute;right:9px;top:9px;z-index:3;background:#171824bb;margin:0;padding:8px}
+.voice-tile-camera .stream-maximize:hover{background:#37394e}
+.voice-tile-camera .stream-maximize .ui-icon{filter:invert(100%)}
+.voice-tile-camera#camera-self video{transform:scaleX(-1)}
+.voice-tile.speaking .voice-tile-visual{box-shadow:inset 0 0 0 2px #55d89c}
+.voice-stage .streams{position:static;left:auto;right:auto;bottom:auto;z-index:auto;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr));gap:16px;width:100%;max-width:none;max-height:none;min-height:0;flex:none;overflow:visible;padding:0 0 16px}
+.voice-stage .stream-card{width:100%;min-height:0;flex:none;display:flex;flex-direction:column;border-radius:16px;box-shadow:none}
+.voice-stage .stream-card video{width:100%;height:auto;min-height:220px;aspect-ratio:16/9;flex:none;object-fit:contain}
+.voice-stage .stream-footer{min-height:44px;padding-left:12px}
+.theme-light .voice-tile-visual{background:#e5e9f3}
+.theme-light .voice-tile-info{background:#fff}
+@media(max-width:850px){.voice-stage{padding:16px}.voice-tiles,.voice-stage .streams{gap:10px}.voice-tile{min-height:205px}}

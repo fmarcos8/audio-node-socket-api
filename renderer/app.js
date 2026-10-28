@@ -25,7 +25,7 @@ const state = {
   volumes: {}, voiceJoinPending: null, joiningRoom: null, rejoinRoom: null, voiceResumeId: 0,
   camera: null, cameraSource: null, cameraInput: null, cameraCanvas: null, cameraTimer: null,
   cameraFilter: 'none', cameraDevice: '', cameraResolution: '360p', cameraFps: 15,
-  cameraBusy: false, videoStreams: new Map()
+  cameraBusy: false, videoStreams: new Map(), knownCameraStreams: new Map()
 };
 
 function volumeKey(member) { return `${state.serverUrl}:${member.profileId || member.id}`; }
@@ -136,15 +136,29 @@ function renderVoiceStage() {
   const members = state.roster[room.id] || [];
   $('voice-stage-name').textContent = room.name;
   $('voice-stage-count').textContent = `${members.length} ${members.length === 1 ? 'pessoa' : 'pessoas'}`;
-  const tiles = $('voice-tiles'); tiles.replaceChildren();
+  const tiles = $('voice-tiles');
+  const cameraCards = new Map([...tiles.querySelectorAll('.voice-tile-camera')].map(card => [card.id, card]));
+  tiles.replaceChildren();
   for (const member of members) {
     const tile = make('div', 'voice-tile'); tile.dataset.peerId = member.id;
+    const visual = make('div', 'voice-tile-visual');
     const avatar = make('div', 'voice-tile-avatar'); setAvatar(avatar, member.avatar, member.name);
+    visual.append(avatar);
+    const info = make('div', 'voice-tile-info');
     const name = make('strong', '', member.name);
-    const status = make('small', '', member.sharing ? 'Transmitindo tela' : member.cameraStreamId ? 'Câmera ligada' : member.muted ? 'Microfone desligado' : 'Na sala de voz');
-    tile.append(avatar, name, status);
-    if (member.sharing) tile.append(icon('monitor', 'ui-icon voice-tile-state'));
-    if (member.cameraStreamId) tile.append(icon('video', 'ui-icon voice-tile-state'));
+    const cameraOn = member.cameraStreamId || (member.id === state.socket?.id && state.camera);
+    const status = make('small', '', member.sharing ? 'Transmitindo tela' : cameraOn ? 'Câmera ligada' : member.muted ? 'Microfone desligado' : 'Na sala de voz');
+    info.append(name, status);
+    const cameraId = member.id === state.socket?.id ? 'camera-self' : `camera-${member.id}`;
+    if (cameraOn && cameraCards.has(cameraId)) {
+      visual.append(cameraCards.get(cameraId));
+      avatar.classList.add('hidden');
+    }
+    tile.append(visual, info);
+    const indicators = make('div', 'voice-tile-states');
+    if (member.sharing) indicators.append(icon('monitor', 'ui-icon'));
+    if (cameraOn) indicators.append(icon('video', 'ui-icon'));
+    if (indicators.childElementCount) tile.append(indicators);
     if (member.id !== state.socket?.id) {
       const control = make('label', 'peer-volume');
       const value = state.volumes[volumeKey(member)] ?? 100;
@@ -153,9 +167,15 @@ function renderVoiceStage() {
       slider.setAttribute('aria-label', `Volume de ${member.name}`);
       slider.oninput = () => { output.textContent = `${slider.value}%`; setPeerVolume(member, slider.value); };
       control.append(icon('volume-2'), slider, output);
-      tile.append(control);
+      info.append(control);
     }
     tiles.append(tile);
+  }
+  if (state.camera) showStream('self', state.camera, 'camera');
+  for (const member of members) {
+    if (member.id === state.socket?.id || !member.cameraStreamId) continue;
+    const stream = state.videoStreams.get(member.id)?.get(member.cameraStreamId);
+    if (stream) renderRemoteVideo(member.id, stream);
   }
   updateSpeaking();
 }
@@ -530,6 +550,7 @@ function closePeer(id) {
   peer?.pc.close();
   state.peers.delete(id);
   state.videoStreams.delete(id);
+  state.knownCameraStreams.delete(id);
   document.querySelectorAll('audio[data-audio-peer-id]').forEach(audio => {
     if (audio.dataset.audioPeerId === id) audio.remove();
   });
@@ -539,6 +560,10 @@ function closePeer(id) {
 function renderRemoteVideo(id, stream) {
   const member = (state.roster[state.voice] || []).find(person => person.id === id);
   const kind = member?.cameraStreamId === stream.id ? 'camera' : 'screen';
+  if (kind === 'camera') {
+    if (!state.knownCameraStreams.has(id)) state.knownCameraStreams.set(id, new Set());
+    state.knownCameraStreams.get(id).add(stream.id);
+  } else if (state.knownCameraStreams.get(id)?.has(stream.id)) return;
   if (kind === 'screen' && member && !member.sharing) return;
   const other = document.getElementById(kind === 'camera' ? `stream-${id}` : `camera-${id}`);
   if (other?.querySelector('video')?.srcObject === stream)
@@ -548,6 +573,34 @@ function renderRemoteVideo(id, stream) {
 function showStream(id, stream, kind = 'screen') {
   const mediaId = kind === 'camera' ? `camera-${id}` : `stream-${id}`;
   const popoutId = kind === 'camera' ? `camera:${id}` : id;
+  if (kind === 'camera') {
+    const peerId = id === 'self' ? state.socket?.id : id;
+    const tile = [...document.querySelectorAll('.voice-tile')].find(item => item.dataset.peerId === peerId);
+    if (!tile) return;
+    const visual = tile.querySelector('.voice-tile-visual');
+    let card = document.getElementById(mediaId);
+    if (!card || !visual.contains(card)) {
+      card = make('div', 'voice-tile-camera'); card.id = mediaId;
+      const maximize = make('button', 'stream-maximize');
+      maximize.type = 'button'; maximize.title = 'Abrir webcam em outra janela';
+      maximize.setAttribute('aria-label', maximize.title); maximize.append(icon('expand'));
+      maximize.onclick = async () => {
+        try { if (!await orbita.openStream(popoutId)) notify('Não foi possível abrir a webcam.'); }
+        catch (error) { notify(error.message || 'Não foi possível abrir a webcam.'); }
+      };
+      card.append(make('video'), maximize);
+      visual.append(card);
+    }
+    visual.querySelector('.voice-tile-avatar').classList.add('hidden');
+    const video = card.querySelector('video');
+    video.autoplay = true; video.muted = true; video.playsInline = true;
+    const track = stream.getVideoTracks()[0];
+    if (video.srcObject !== stream || video.displayedTrack !== track) {
+      video.srcObject = null; video.srcObject = stream; video.displayedTrack = track;
+    }
+    video.play().catch(error => console.warn('Reprodução da webcam:', error));
+    return;
+  }
   let card = document.getElementById(mediaId);
   if (!card) {
     card = make('div', 'stream-card'); card.id = mediaId;
@@ -558,10 +611,12 @@ function showStream(id, stream, kind = 'screen') {
       try { if (!await orbita.openStream(popoutId)) notify('Não foi possível abrir a transmissão.'); }
       catch (error) { notify(error.message || 'Não foi possível abrir a transmissão.'); }
     };
-    footer.append(make('span', '', kind === 'camera' ? 'Webcam' : 'Tela compartilhada'), maximize);
+    footer.append(make('span', '', id === 'self' ? 'Sua tela' : `Tela de ${(state.roster[state.voice] || []).find(member => member.id === id)?.name || 'participante'}`), maximize);
     card.append(make('video'), footer);
     $('streams').append(card);
   }
+  card.querySelector('.stream-footer span').textContent = id === 'self' ? 'Sua tela' :
+    `Tela de ${(state.roster[state.voice] || []).find(member => member.id === id)?.name || 'participante'}`;
   const video = card.querySelector('video');
   video.autoplay = true;
   video.muted = true;
@@ -574,16 +629,16 @@ function showStream(id, stream, kind = 'screen') {
   }
   video.play().catch(error => console.warn('Reprodução de vídeo:', error));
   $('streams').classList.remove('hidden');
-  $('voice-hint').classList.add('hidden');
 }
 function hideStream(id, kind = 'screen') {
   const popoutId = kind === 'camera' ? `camera:${id}` : id;
   state.popoutPeers.get(popoutId)?.pc.close();
   state.popoutPeers.delete(popoutId);
   orbita.closeStream?.(popoutId);
-  document.getElementById(kind === 'camera' ? `camera-${id}` : `stream-${id}`)?.remove();
-  $('streams').classList.toggle('hidden', !$('streams').children.length);
-  $('voice-hint').classList.toggle('hidden', !!$('streams').children.length);
+  const card = document.getElementById(kind === 'camera' ? `camera-${id}` : `stream-${id}`);
+  if (kind === 'camera') card?.parentElement?.querySelector('.voice-tile-avatar')?.classList.remove('hidden');
+  card?.remove();
+  if (kind === 'screen') $('streams').classList.toggle('hidden', !$('streams').children.length);
 }
 function mirrorStream(id) {
   const cardId = id.startsWith('camera:') ? `camera-${id.slice(7)}` : `stream-${id}`;
@@ -746,7 +801,6 @@ async function toggleCamera() {
     state.socket.emit('voice:state', { cameraStreamId: state.camera.id });
     for (const { pc } of state.peers.values()) configureCameraSender(pc.addTrack(track, state.camera));
     showStream('self', state.camera, 'camera');
-    document.querySelector('#camera-self .stream-footer span').textContent = 'Sua webcam';
     await listCameras();
   } catch (error) { stopCamera(); notify(`Não foi possível ligar a webcam: ${error.message}`); }
   finally { state.cameraBusy = false; updateVoiceUi(); }
