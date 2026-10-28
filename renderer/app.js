@@ -134,7 +134,7 @@ function renderVoiceStage() {
   $('voice-stage').classList.toggle('hidden', !room || state.view !== 'voice');
   if (!room) return;
   const members = state.roster[room.id] || [];
-  $('voice-stage-name').textContent = room.name;
+  $('voice-stage-name').textContent = 'Pessoas na chamada';
   $('voice-stage-count').textContent = `${members.length} ${members.length === 1 ? 'pessoa' : 'pessoas'}`;
   const tiles = $('voice-tiles');
   const cameraCards = new Map([...tiles.querySelectorAll('.voice-tile-camera')].map(card => [card.id, card]));
@@ -185,6 +185,7 @@ function renderView() {
   const settingsView = state.view === 'settings';
   const room = state.voices.find(item => item.id === state.voice);
   $('app').classList.toggle('text-view', !voiceView);
+  $('app').classList.toggle('voice-view', voiceView);
   $('app').classList.toggle('settings-view', settingsView);
   $('messages').classList.toggle('hidden', voiceView || settingsView);
   $('message-form').classList.toggle('hidden', voiceView || settingsView);

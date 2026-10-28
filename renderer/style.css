@@ -130,3 +130,18 @@
 .theme-light .voice-tile-visual{background:#e5e9f3}
 .theme-light .voice-tile-info{background:#fff}
 @media(max-width:850px){.voice-stage{padding:16px}.voice-tiles,.voice-stage .streams{gap:10px}.voice-tile{min-height:205px}}
+
+/* Controles junto ao título fixo da sala, liberando a área de vídeo. */
+.app.voice-view .main{padding-bottom:0}
+.app.voice-view .topbar{height:auto;min-height:73px;flex-wrap:wrap;gap:10px;padding:10px 20px;background:#20212b;z-index:5}
+.app.voice-view .top-title{flex:none;min-width:0}
+.app.voice-view .top-title .top-divider,.app.voice-view .top-title #channel-description,.app.voice-view .online-pill{display:none}
+.app.voice-view .media-dock{position:static;left:auto;right:auto;bottom:auto;flex:1;min-width:0;width:auto;min-height:0;margin:0;padding:0;gap:12px;justify-content:flex-end;border:0;border-radius:0;background:transparent;box-shadow:none}
+.app.voice-view .dock-info{flex:none}
+.app.voice-view .dock-info strong,.app.voice-view .dock-info small{display:none}
+.app.voice-view .dock-actions{flex-wrap:wrap;justify-content:flex-end}
+.app.voice-view .voice-stage{padding-top:14px}
+.app.voice-view .voice-tiles{padding-top:10px}
+.theme-light .app.voice-view .topbar{background:#fff}
+@media(max-width:1000px){.app.voice-view .dock-info{display:none}.app.voice-view .dock-button{padding:8px 9px}}
+@media(max-width:850px){.app.voice-view .topbar{padding:9px 14px}.app.voice-view .media-dock{flex-basis:100%}.app.voice-view .dock-actions{width:100%;justify-content:flex-start}}

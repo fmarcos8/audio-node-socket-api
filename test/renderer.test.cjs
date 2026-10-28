@@ -33,6 +33,11 @@ test('navegação, cartões de câmera e tela com janela separada e configuraç�
   assert.equal($('message-form').classList.contains('hidden'), true);
   assert.equal($('voice-stage').classList.contains('hidden'), false);
   assert.equal($('channel-title').textContent, 'Sala geral');
+  assert.equal($('voice-stage-name').textContent, 'Pessoas na chamada');
+  assert.equal($('media-dock').parentElement.className, 'topbar');
+  assert.equal($('app').classList.contains('voice-view'), true);
+  assert.equal(window.getComputedStyle($('media-dock')).position, 'static');
+  assert.equal(window.getComputedStyle(window.document.querySelector('.main')).paddingBottom, '0px');
   const slider = window.document.querySelector('.voice-tile[data-peer-id="outro"] input[type="range"]');
   assert.equal(slider.value, '100');
   const remoteAudio = window.document.createElement('audio');
@@ -157,6 +162,7 @@ test('navegação, cartões de câmera e tela com janela separada e configuraç�
   $('text-channels').querySelector('button').click();
   assert.equal($('messages').classList.contains('hidden'), false);
   assert.equal($('voice-stage').classList.contains('hidden'), true);
+  assert.equal($('app').classList.contains('voice-view'), false);
   assert.equal($('channel-title').textContent, 'geral');
   vm.runInContext(`state.view = 'voice'; renderChannels(); renderView();`, context);
   assert.equal($('stream-outro').classList.contains('hidden'), false);
