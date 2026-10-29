@@ -5,6 +5,7 @@ const { networkInterfaces } = require('node:os');
 const { randomBytes } = require('node:crypto');
 const { createChatServer } = require('../server/index.cjs');
 const { checkForUpdates } = require('./updates.cjs');
+const { isTrustedSender } = require('./ipc-security.cjs');
 
 let window;
 let localServer;
@@ -34,6 +35,7 @@ async function createWindow() {
     try {
       if (request.frame !== window?.webContents?.mainFrame) return callback(null);
       const sourceId = selectedSources.get(window.webContents.id);
+      selectedSources.delete(window.webContents.id);
       const sources = await desktopCapturer.getSources({ types: ['screen', 'window'] });
       const source = sources.find(item => item.id === sourceId);
       callback(source ? {
@@ -61,7 +63,7 @@ async function createWindow() {
 
 app.whenReady().then(() => {
   ipcMain.handle('update:check', async event => {
-    if (event.sender !== window?.webContents) return { status: 'error' };
+    if (!isTrustedSender(event, window?.webContents)) return { status: 'error' };
     availableUpdateUrl = null;
     try {
       const result = await checkForUpdates(app.getVersion());
@@ -73,12 +75,12 @@ app.whenReady().then(() => {
     }
   });
   ipcMain.handle('update:open', async event => {
-    if (event.sender !== window?.webContents || !availableUpdateUrl) return false;
+    if (!isTrustedSender(event, window?.webContents) || !availableUpdateUrl) return false;
     await shell.openExternal(availableUpdateUrl);
     return true;
   });
   ipcMain.handle('stream:open', async (event, id) => {
-    if (event.sender !== window?.webContents || typeof id !== 'string' || !/^(camera:)?(self|[\w-]{1,64})$/.test(id)) return false;
+    if (!isTrustedSender(event, window?.webContents) || typeof id !== 'string' || !/^(camera:)?(self|[\w-]{1,64})$/.test(id)) return false;
     const existing = popouts.get(id);
     if (existing && !existing.isDestroyed()) { existing.focus(); existing.maximize(); return true; }
     const popup = new BrowserWindow({
@@ -97,19 +99,20 @@ app.whenReady().then(() => {
     return true;
   });
   ipcMain.on('stream:ready', (event, id) => {
-    if (popouts.get(id)?.webContents === event.sender && !window?.isDestroyed()) window.webContents.send('stream:ready', id);
+    if (isTrustedSender(event, popouts.get(id)?.webContents) && !window?.isDestroyed()) window.webContents.send('stream:ready', id);
   });
   ipcMain.on('stream:signal', (event, id, signal) => {
     const popup = popouts.get(id);
     if (!popup || popup.isDestroyed() || !signal || typeof signal !== 'object') return;
-    if (event.sender === window?.webContents) popup.webContents.send('stream:signal', signal);
-    else if (event.sender === popup.webContents && !window?.isDestroyed()) window.webContents.send('stream:signal', id, signal);
+    if (isTrustedSender(event, window?.webContents)) popup.webContents.send('stream:signal', signal);
+    else if (isTrustedSender(event, popup.webContents) && !window?.isDestroyed()) window.webContents.send('stream:signal', id, signal);
   });
   ipcMain.on('stream:close', (event, id) => {
     const popup = popouts.get(id);
-    if (event.sender === window?.webContents && popup && !popup.isDestroyed()) popup.close();
+    if (isTrustedSender(event, window?.webContents) && popup && !popup.isDestroyed()) popup.close();
   });
-  ipcMain.handle('server:host', async () => {
+  ipcMain.handle('server:host', async event => {
+    if (!isTrustedSender(event, window?.webContents)) throw new Error('Janela inválida.');
     if (localAddress) return localAddress;
     const code = randomBytes(12).toString('base64url');
     const server = createChatServer({ port: 0, password: code, dataDir: join(app.getPath('userData'), 'host-data') });
@@ -118,21 +121,24 @@ app.whenReady().then(() => {
     localAddress = { url: `http://127.0.0.1:${address.port}`, invite: `http://${lanAddress()}:${address.port}`, code };
     return localAddress;
   });
-  ipcMain.handle('capture:sources', async () => {
+  ipcMain.handle('capture:sources', async event => {
+    if (!isTrustedSender(event, window?.webContents)) return [];
     const sources = await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 300, height: 180 } });
     return sources.map(source => ({ id: source.id, name: source.name, thumbnail: source.thumbnail.toDataURL() }));
   });
   ipcMain.handle('capture:select', (event, id) => {
+    if (!isTrustedSender(event, window?.webContents)) return false;
     if (typeof id !== 'string' || !/^(screen|window):/.test(id)) return false;
     selectedSources.set(window.webContents.id, id);
     return true;
   });
   ipcMain.handle('file:save', async (event, name, data) => {
-    if (event.sender !== window?.webContents) throw new Error('Janela inválida.');
+    if (!isTrustedSender(event, window?.webContents)) throw new Error('Janela inválida.');
     if (typeof name !== 'string' || !data || !ArrayBuffer.isView(data) && !(data instanceof ArrayBuffer))
       throw new Error('Arquivo inválido.');
+    const length = data.byteLength;
+    if (length < 1 || length > 100 * 1024 * 1024) throw new Error('Arquivo maior que 100 MB.');
     const bytes = Buffer.from(data);
-    if (bytes.length < 1 || bytes.length > 100 * 1024 * 1024) throw new Error('Arquivo maior que 100 MB.');
     const safeName = basename(name.replace(/[\\/]/g, '_')).slice(0, 120);
     const result = await dialog.showSaveDialog(window, { defaultPath: safeName });
     if (result.canceled || !result.filePath) return false;

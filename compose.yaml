@@ -6,6 +6,7 @@ services:
     restart: unless-stopped
     environment:
       ORBITA_CODE: ${ORBITA_CODE:?Defina ORBITA_CODE no arquivo .env}
+      ORBITA_STORAGE_LIMIT_MB: ${ORBITA_STORAGE_LIMIT_MB:-1024}
       ICE_SERVERS: ${ICE_SERVERS:-}
     ports:
       - "127.0.0.1:${ORBITA_PORT:-3000}:3000"

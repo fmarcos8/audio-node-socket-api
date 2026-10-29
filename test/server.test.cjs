@@ -4,7 +4,7 @@ const { mkdtempSync, rmSync, writeFileSync } = require('node:fs');
 const { tmpdir } = require('node:os');
 const { join } = require('node:path');
 const { io } = require('socket.io-client');
-const { createChatServer } = require('../server/index.cjs');
+const { createChatServer, validAvatar } = require('../server/index.cjs');
 
 function once(socket, event) {
   return new Promise((resolve, reject) => {
@@ -42,6 +42,9 @@ test('autenticação, chat, salas, sinalização e persistência', async () => {
     assert.equal(first.mine, false);
     assert.equal(first.ownerKey, undefined);
     const photo = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9WlMYxYAAAAASUVORK5CYII=';
+    const hugeHeader = Buffer.from(photo.slice(photo.indexOf(',') + 1), 'base64');
+    hugeHeader.writeUInt32BE(65535, 16);
+    assert.equal(validAvatar(`data:image/png;base64,${hugeHeader.toString('base64')}`), false);
     assert.equal((await ack(ana, 'profile:update', { avatar: 'data:image/svg+xml;base64,PHN2Zz4=' })).ok, false);
     const photoEvent = once(bia, 'profile:updated');
     assert.equal((await ack(ana, 'profile:update', { avatar: photo })).ok, true);
@@ -105,8 +108,16 @@ test('autenticação, chat, salas, sinalização e persistência', async () => {
     bia.emit('voice:speaking', true);
     assert.deepEqual(await speaking, { id: bia.id, speaking: true });
     const signal = once(bia, 'rtc:signal');
-    ana.emit('rtc:signal', { to: bia.id, candidate: { candidate: 'teste' } });
-    assert.equal((await signal).from, ana.id);
+    ana.emit('rtc:signal', null);
+    ana.emit('rtc:signal', { to: bia.id, candidate: { candidate: 'teste', extra: 'ignored' } });
+    const received = await signal;
+    assert.equal(received.from, ana.id);
+    assert.equal(received.candidate.extra, undefined);
+    let oversizedForwarded = false;
+    bia.once('rtc:signal', () => { oversizedForwarded = true; });
+    ana.emit('rtc:signal', { to: bia.id, candidate: { candidate: 'x'.repeat(4097) } });
+    await new Promise(resolve => setTimeout(resolve, 80));
+    assert.equal(oversizedForwarded, false);
     let rosterUpdate = once(bia, 'voice:roster');
     ana.emit('voice:state', { cameraStreamId: 'camera-stream-1' });
     assert.equal((await rosterUpdate)['sala-geral'].find(member => member.id === ana.id).cameraStreamId, 'camera-stream-1');
@@ -136,6 +147,30 @@ test('autenticação, chat, salas, sinalização e persistência', async () => {
     await server.close();
     rmSync(dataDir, { recursive: true, force: true });
   }
+});
+
+test('cotas de anexos e fotos liberam espaço após exclusão', async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'orbita-quota-'));
+  const server = createChatServer({ port: 0, host: '127.0.0.1', password: 'codigo-seguro', dataDir, maxAttachmentBytes: 5, maxAvatarBytes: 400 });
+  let socket;
+  try {
+    const address = await server.listen();
+    socket = client(`http://127.0.0.1:${address.port}`, 'Ana', 'codigo-seguro');
+    await once(socket, 'init');
+    const send = async data => {
+      const event = once(socket, 'message:new');
+      assert.equal((await ack(socket, 'message:send', { channel: 'geral', attachment: { name: 'a', mime: 'application/octet-stream', data: Buffer.from(data) } })).ok, true);
+      return event;
+    };
+    const first = await send('12345');
+    assert.equal((await ack(socket, 'message:send', { channel: 'geral', attachment: { name: 'b', mime: 'text/plain', data: Buffer.from('a') } })).ok, false);
+    assert.equal((await ack(socket, 'message:delete', { channel: 'geral', id: first.id })).ok, true);
+    await new Promise(resolve => setTimeout(resolve, 420));
+    await send('1');
+    const photo = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9WlMYxYAAAAASUVORK5CYII=';
+    assert.equal((await ack(socket, 'profile:update', { avatar: photo })).ok, true);
+    assert.equal((await ack(socket, 'profile:update', { avatar: null })).ok, true);
+  } finally { socket?.disconnect(); await server.close(); rmSync(dataDir, { recursive: true, force: true }); }
 });
 
 test('histórico anterior continua visível, sem conceder edição por nome', async () => {

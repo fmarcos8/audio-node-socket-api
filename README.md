@@ -46,7 +46,9 @@ No servidor, dentro da pasta do projeto:
 cp .env.example .env
 ```
 
-Edite `.env` e escolha um `ORBITA_CODE` longo e privado. Depois:
+Edite `.env` e escolha um `ORBITA_CODE` longo e privado (por exemplo, gere com `openssl rand -base64 24`). Depois:
+
+O armazenamento de anexos tem limite padrão de 1024 MB no servidor. Ajuste `ORBITA_STORAGE_LIMIT_MB` no `.env` conforme o espaço disponível; cada arquivo continua limitado a 100 MB. O servidor também limita o total de fotos de perfil a 64 MB e suas dimensões a 1024 × 1024 pixels.
 
 ```bash
 docker compose up -d --build
@@ -79,6 +81,8 @@ Se você configura o túnel pelo painel da Cloudflare, crie o hostname publicado
 Se o seu `cloudflared` estiver **dentro de outro contêiner**, `localhost` apontará para aquele contêiner. Nesse caso, conecte os dois serviços à mesma rede Docker e use `http://orbita:3000` como origem do túnel.
 
 Para acessar pela internet, coloque o servidor atrás de HTTPS/WSS com um proxy reverso e use um endereço `https://...`. O áudio e o vídeo são enviados entre participantes por WebRTC. Em algumas redes, o STUN padrão não consegue estabelecer a conexão; configure um servidor TURN seu no processo do servidor:
+
+O código de acesso é compartilhado: quem o conhece pode ler o histórico e baixar anexos. Ele e a identidade local do cliente ficam armazenados no dispositivo; este projeto não possui contas individuais nem criptografia do histórico armazenado. Proteja o código e use HTTPS quando houver acesso fora da rede local.
 
 ```bash
 ICE_SERVERS='[{"urls":"stun:stun.l.google.com:19302"},{"urls":"turn:turn.exemplo.com:3478","username":"usuario","credential":"senha"}]' ORBITA_CODE='um-codigo-longo-e-secreto' npm run server
