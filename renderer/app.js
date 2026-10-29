@@ -23,7 +23,7 @@ const state = {
   view: 'text', previousView: 'text', fileLimitMb: 8, theme: 'dark', accent: 'violet', accentColor: '#8171f1', avatar: null, shareQuality: 'performance',
   popoutPeers: new Map(), pendingSignals: [], speakingLevels: new Map(), remoteSpeaking: new Map(),
   volumes: {}, voiceJoinPending: null, joiningRoom: null, rejoinRoom: null, voiceResumeId: 0,
-  camera: null, cameraSource: null, cameraInput: null, cameraCanvas: null, cameraTimer: null,
+  camera: null, cameraSource: null, cameraInput: null, cameraCanvas: null, cameraTimer: null, cameraTrackId: null,
   cameraFilter: 'none', cameraDevice: '', cameraResolution: '360p', cameraFps: 15,
   cameraBusy: false, videoStreams: new Map(), knownCameraStreams: new Map()
 };
@@ -146,7 +146,7 @@ function renderVoiceStage() {
     visual.append(avatar);
     const info = make('div', 'voice-tile-info');
     const name = make('strong', '', member.name);
-    const cameraOn = member.cameraStreamId || (member.id === state.socket?.id && state.camera);
+    const cameraOn = member.cameraStreamId || member.cameraTrackId || (member.id === state.socket?.id && state.camera);
     const status = make('small', '', member.sharing ? 'Transmitindo tela' : cameraOn ? 'Câmera ligada' : member.muted ? 'Microfone desligado' : 'Na sala de voz');
     info.append(name, status);
     const cameraId = member.id === state.socket?.id ? 'camera-self' : `camera-${member.id}`;
@@ -173,9 +173,8 @@ function renderVoiceStage() {
   }
   if (state.camera) showStream('self', state.camera, 'camera');
   for (const member of members) {
-    if (member.id === state.socket?.id || !member.cameraStreamId) continue;
-    const stream = state.videoStreams.get(member.id)?.get(member.cameraStreamId);
-    if (stream) renderRemoteVideo(member.id, stream);
+    if (member.id === state.socket?.id || !(member.cameraStreamId || member.cameraTrackId)) continue;
+    for (const stream of state.videoStreams.get(member.id)?.values() || []) renderRemoteVideo(member.id, stream);
   }
   updateSpeaking();
 }
@@ -560,7 +559,8 @@ function closePeer(id) {
 }
 function renderRemoteVideo(id, stream) {
   const member = (state.roster[state.voice] || []).find(person => person.id === id);
-  const kind = member?.cameraStreamId === stream.id ? 'camera' : 'screen';
+  const kind = member && ((member.cameraStreamId && member.cameraStreamId === stream.id) ||
+    (member.cameraTrackId && stream.getVideoTracks().some(track => track.id === member.cameraTrackId))) ? 'camera' : 'screen';
   if (kind === 'camera') {
     if (!state.knownCameraStreams.has(id)) state.knownCameraStreams.set(id, new Set());
     state.knownCameraStreams.get(id).add(stream.id);
@@ -769,6 +769,7 @@ function stopCamera() {
   if (!state.cameraSource && !state.camera) return;
   const camera = state.camera;
   state.camera = null;
+  state.cameraTrackId = null;
   clearTimeout(state.cameraTimer); state.cameraTimer = null; state.cameraCanvas = null;
   for (const { pc } of state.peers.values())
     for (const sender of pc.getSenders()) if (camera?.getTracks().includes(sender.track)) pc.removeTrack(sender);
@@ -778,7 +779,7 @@ function stopCamera() {
   if (state.cameraInput) state.cameraInput.srcObject = null;
   state.cameraInput = null; state.cameraSource = null;
   hideStream('self', 'camera');
-  if (state.socket?.connected) state.socket.emit('voice:state', { cameraStreamId: null });
+  if (state.socket?.connected) state.socket.emit('voice:state', { cameraStreamId: null, cameraTrackId: null });
   updateVoiceUi();
 }
 
@@ -799,8 +800,9 @@ async function toggleCamera() {
     const track = await cameraOutput(state.cameraFilter);
     if (!state.voice) { track.stop(); stopCamera(); return; }
     state.camera = new MediaStream([track]);
-    state.socket.emit('voice:state', { cameraStreamId: state.camera.id });
+    state.cameraTrackId = track.id;
     for (const { pc } of state.peers.values()) configureCameraSender(pc.addTrack(track, state.camera));
+    state.socket.emit('voice:state', { cameraStreamId: state.camera.id, cameraTrackId: state.cameraTrackId });
     showStream('self', state.camera, 'camera');
     await listCameras();
   } catch (error) { stopCamera(); notify(`Não foi possível ligar a webcam: ${error.message}`); }
@@ -872,7 +874,7 @@ async function restoreVoice(socket, room) {
       if (state.socket !== socket || !socket.connected || state.voice !== room || state.voiceResumeId !== resumeId) return;
       state.rejoinRoom = null;
       if (state.mic) watchAudio(socket.id, state.mic);
-      socket.emit('voice:state', { muted: state.muted, sharing: !!state.screen, cameraStreamId: state.camera?.id || null });
+      socket.emit('voice:state', { muted: state.muted, sharing: !!state.screen, cameraStreamId: state.camera?.id || null, cameraTrackId: state.cameraTrackId });
       updateVoiceUi();
       for (const member of result.peers) createPeer(member.id);
       for (const signal of state.pendingSignals.splice(0)) receiveSignal(signal);
@@ -1066,7 +1068,7 @@ function connect(url, name, code) {
     for (const [id] of state.peers) {
       const member = (roster[state.voice] || []).find(person => person.id === id);
       if (member && !member.sharing) hideStream(id);
-      if (member && !member.cameraStreamId) hideStream(id, 'camera');
+      if (member && !(member.cameraStreamId || member.cameraTrackId)) hideStream(id, 'camera');
       for (const stream of state.videoStreams.get(id)?.values() || []) renderRemoteVideo(id, stream);
     }
     renderChannels();

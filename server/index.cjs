@@ -132,7 +132,7 @@ function createChatServer({ port = 3000, host = '0.0.0.0', password, dataDir = j
     catch (error) { if (error.code !== 'ENOENT') console.error('Falha ao remover anexo:', error); }
   };
   const members = room => [...users.entries()].filter(([, user]) => user.voice === room)
-    .map(([id, user]) => ({ id, name: user.name, profileId: profileIdFor(user.ownerKey), avatar: avatarFor(user.ownerKey), sharing: user.sharing, cameraStreamId: user.cameraStreamId, muted: user.muted }));
+    .map(([id, user]) => ({ id, name: user.name, profileId: profileIdFor(user.ownerKey), avatar: avatarFor(user.ownerKey), sharing: user.sharing, cameraStreamId: user.cameraStreamId, cameraTrackId: user.cameraTrackId, muted: user.muted }));
   const roster = () => Object.fromEntries(VOICES.map(({ id }) => [id, members(id)]));
   const leaveVoice = socket => {
     const user = users.get(socket.id);
@@ -142,6 +142,7 @@ function createChatServer({ port = 3000, host = '0.0.0.0', password, dataDir = j
     user.voice = null;
     user.sharing = false;
     user.cameraStreamId = null;
+    user.cameraTrackId = null;
     io.to(`voice:${room}`).emit('voice:peer-left', { id: socket.id });
     io.emit('voice:roster', roster());
   };
@@ -160,7 +161,7 @@ function createChatServer({ port = 3000, host = '0.0.0.0', password, dataDir = j
 
   io.on('connection', socket => {
     console.info(`[${new Date().toISOString()}] ${socket.data.name} conectado (${socket.id})`);
-    users.set(socket.id, { name: socket.data.name, ownerKey: socket.data.ownerKey, voice: null, sharing: false, cameraStreamId: null, muted: false, lastMessage: 0, rates: {} });
+    users.set(socket.id, { name: socket.data.name, ownerKey: socket.data.ownerKey, voice: null, sharing: false, cameraStreamId: null, cameraTrackId: null, muted: false, lastMessage: 0, rates: {} });
     const visible = Object.fromEntries(CHANNELS.map(({ id }) =>
       [id, messages[id].map(message => publicMessage(message, socket, false))]));
     const avatars = {};
@@ -303,6 +304,8 @@ function createChatServer({ port = 3000, host = '0.0.0.0', password, dataDir = j
       if (typeof state?.sharing === 'boolean') user.sharing = state.sharing;
       if (state?.cameraStreamId === null || (typeof state?.cameraStreamId === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(state.cameraStreamId)))
         user.cameraStreamId = state.cameraStreamId;
+      if (state?.cameraTrackId === null || (typeof state?.cameraTrackId === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(state.cameraTrackId)))
+        user.cameraTrackId = state.cameraTrackId;
       if (typeof state?.muted === 'boolean') user.muted = state.muted;
       io.emit('voice:roster', roster());
     });

@@ -188,14 +188,14 @@ test('navegação, cartões de câmera e tela com janela separada e configuraç�
   assert.equal(context.joinCalls, 1);
   context.cameraSettings = { width: 640, height: 360 };
   context.rawCameraTrack = {
-    kind: 'video', getSettings: () => context.cameraSettings,
+    kind: 'video', id: 'camera-track', getSettings: () => context.cameraSettings,
     applyConstraints: async limits => {
       context.cameraLimits = limits;
       context.cameraSettings = { width: limits.width.ideal, height: limits.height.ideal };
     },
     stop: () => { context.cameraStopped = true; }
   };
-  context.filteredTrack = { kind: 'video', stop: () => {} };
+  context.filteredTrack = { kind: 'video', id: 'filtered-track', stop: () => {} };
   context.cameraSource = { getVideoTracks: () => [context.rawCameraTrack], getTracks: () => [context.rawCameraTrack] };
   context.navigator.mediaDevices.getUserMedia = async () => context.cameraSource;
   context.navigator.mediaDevices.enumerateDevices = async () => [{ kind: 'videoinput', deviceId: 'cam-1', label: 'Webcam USB' }];
@@ -238,6 +238,7 @@ test('navegação, cartões de câmera e tela com janela separada e configuraç�
   assert.equal(window.localStorage.getItem('orbita-camera-fps'), '30');
   $('camera-filter').value = 'sepia'; await $('camera-filter').onchange();
   assert.equal(context.cameraSender.track, context.filteredTrack);
+  assert.equal(vm.runInContext('state.cameraTrackId', context), 'camera-track');
   assert.equal(context.canvasCaptureRate, 30);
   assert.equal(vm.runInContext('state.cameraCanvas.width', context), 1280);
   assert.equal(window.localStorage.getItem('orbita-camera-filter'), 'sepia');
@@ -254,12 +255,19 @@ test('navegação, cartões de câmera e tela com janela separada e configuraç�
   assert.equal($('camera-outro').closest('.voice-tile').dataset.peerId, 'outro');
   assert.equal($('streams').contains($('camera-outro')), false);
   assert.equal($('stream-outro').querySelector('video').srcObject, context.remoteScreen);
+  context.cameraWithoutStreamId = new context.MediaStream([context.filteredTrack], 'unrelated-stream-id');
+  vm.runInContext(`state.roster['sala-geral'][1].cameraTrackId = 'filtered-track'; renderRemoteVideo('outro', cameraWithoutStreamId);`, context);
+  assert.equal($('camera-outro').querySelector('video').srcObject, context.cameraWithoutStreamId);
+  vm.runInContext(`state.roster['sala-geral'][1].cameraStreamId = 'different-stream-id';
+    state.peers.clear(); createPeer('outro').pc.ontrack({ track: filteredTrack, streams: [] });`, context);
+  assert.equal($('camera-outro').querySelector('video').srcObject.getVideoTracks()[0], context.filteredTrack);
   const webcamCard = $('camera-outro');
   vm.runInContext('renderVoiceStage()', context);
   assert.equal($('camera-outro'), webcamCard);
   $('camera-outro').querySelector('.stream-maximize').click();
   await new Promise(resolve => setTimeout(resolve, 0));
   assert.equal(context.openedStream, 'camera:outro');
+  vm.runInContext(`state.peers.clear(); state.peers.set('outro', cameraPeer);`, context);
   vm.runInContext('stopCamera()', context);
   assert.equal($('camera-self'), null);
   assert.equal(window.document.querySelector('.voice-tile[data-peer-id="eu"] .voice-tile-avatar').classList.contains('hidden'), false);

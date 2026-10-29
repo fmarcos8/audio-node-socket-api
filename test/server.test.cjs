@@ -119,11 +119,15 @@ test('autenticação, chat, salas, sinalização e persistência', async () => {
     await new Promise(resolve => setTimeout(resolve, 80));
     assert.equal(oversizedForwarded, false);
     let rosterUpdate = once(bia, 'voice:roster');
-    ana.emit('voice:state', { cameraStreamId: 'camera-stream-1' });
-    assert.equal((await rosterUpdate)['sala-geral'].find(member => member.id === ana.id).cameraStreamId, 'camera-stream-1');
+    ana.emit('voice:state', { cameraStreamId: 'camera-stream-1', cameraTrackId: 'camera-track-1' });
+    const cameraMember = (await rosterUpdate)['sala-geral'].find(member => member.id === ana.id);
+    assert.equal(cameraMember.cameraStreamId, 'camera-stream-1');
+    assert.equal(cameraMember.cameraTrackId, 'camera-track-1');
     rosterUpdate = once(bia, 'voice:roster');
-    ana.emit('voice:state', { cameraStreamId: null });
-    assert.equal((await rosterUpdate)['sala-geral'].find(member => member.id === ana.id).cameraStreamId, null);
+    ana.emit('voice:state', { cameraStreamId: null, cameraTrackId: null });
+    const cameraOff = (await rosterUpdate)['sala-geral'].find(member => member.id === ana.id);
+    assert.equal(cameraOff.cameraStreamId, null);
+    assert.equal(cameraOff.cameraTrackId, null);
     ana.emit('voice:leave');
     assert.equal((await once(bia, 'voice:peer-left')).id, ana.id);
 
