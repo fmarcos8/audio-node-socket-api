@@ -25,7 +25,8 @@ const state = {
   volumes: {}, voiceJoinPending: null, joiningRoom: null, rejoinRoom: null, voiceResumeId: 0,
   camera: null, cameraSource: null, cameraInput: null, cameraCanvas: null, cameraTimer: null, cameraTrackId: null,
   cameraFilter: 'none', cameraDevice: '', cameraResolution: '360p', cameraFps: 15,
-  cameraBusy: false, videoStreams: new Map(), knownCameraStreams: new Map()
+  cameraBusy: false, videoStreams: new Map(), knownCameraStreams: new Map(),
+  voiceMessages: {}, joinSound: null, joinSoundName: '', notificationSounds: true, notificationContext: null
 };
 
 function volumeKey(member) { return `${state.serverUrl}:${member.profileId || member.id}`; }
@@ -48,6 +49,55 @@ function notify(message) {
   toast.classList.remove('hidden');
   clearTimeout(notify.timer);
   notify.timer = setTimeout(() => toast.classList.add('hidden'), 4500);
+}
+function playNotification(kind, customSound = null) {
+  if (!state.notificationSounds || state.deafened) return;
+  if (kind === 'join' && customSound && typeof window.Audio === 'function') {
+    try {
+      const audio = new window.Audio(customSound);
+      audio.volume = 0.55;
+      audio.play().catch(error => console.warn('Som de entrada indisponível:', error));
+      return;
+    } catch (error) { console.warn('Som personalizado indisponível:', error); }
+  }
+  const AudioContextType = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextType) return;
+  try {
+    const context = state.notificationContext ||= new AudioContextType();
+    context.resume().catch(() => {});
+    const notes = kind === 'join' ? [523, 659] : [784];
+    notes.forEach((frequency, index) => {
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      const start = context.currentTime + index * 0.11;
+      oscillator.type = 'sine'; oscillator.frequency.value = frequency;
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(0.12, start + 0.025);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.17);
+      oscillator.connect(gain); gain.connect(context.destination);
+      oscillator.start(start); oscillator.stop(start + 0.18);
+    });
+  } catch (error) { console.warn('Notificação sonora indisponível:', error); }
+}
+function currentJoinSound() { return $('entry-sound-mode').value === 'custom' ? state.joinSound : null; }
+function renderJoinSoundSetting() {
+  $('entry-sound-name').textContent = state.joinSoundName || 'Som padrão';
+  $('entry-sound-remove').disabled = !state.joinSound;
+}
+function renderVoiceChat() {
+  const room = state.voices.find(item => item.id === state.voice);
+  $('voice-chat-room').textContent = room?.name || '';
+  const list = $('voice-chat-messages');
+  list.replaceChildren();
+  const items = state.voiceMessages[state.voice] || [];
+  if (!items.length) list.append(make('p', 'voice-chat-empty', 'Nenhuma mensagem ainda. Comece a conversa!'));
+  for (const message of items) {
+    const row = make('article', 'voice-chat-message');
+    const header = make('header');
+    header.append(make('strong', '', message.author), make('time', '', time(message.at)));
+    row.append(header, make('p', '', message.content)); list.append(row);
+  }
+  list.scrollTop = list.scrollHeight;
 }
 async function checkUpdates(manual = false) {
   if (!orbita.checkUpdates) return;
@@ -136,6 +186,7 @@ function renderVoiceStage() {
   const members = state.roster[room.id] || [];
   $('voice-stage-name').textContent = 'Pessoas na chamada';
   $('voice-stage-count').textContent = `${members.length} ${members.length === 1 ? 'pessoa' : 'pessoas'}`;
+  $('voice-chat-room').textContent = room.name;
   const tiles = $('voice-tiles');
   const cameraCards = new Map([...tiles.querySelectorAll('.voice-tile-camera')].map(card => [card.id, card]));
   tiles.replaceChildren();
@@ -835,11 +886,13 @@ async function enterVoice(room) {
   }
   try {
     if (state.socket !== socket || !socket?.connected) throw new Error('Conexão encerrada.');
-    const result = await emitAck('voice:join', room);
+    const result = await emitAck('voice:join', { room, sound: currentJoinSound() });
     if (!result.ok) throw new Error(result.error);
     if (state.socket !== socket || !socket.connected) throw new Error('Conexão encerrada.');
     state.voice = room;
     state.view = 'voice';
+    state.voiceMessages[room] = result.messages || [];
+    renderVoiceChat();
     if (state.mic) watchAudio(state.socket.id, state.mic);
     updateVoiceUi();
     for (const member of result.peers) createPeer(member.id);
@@ -869,10 +922,12 @@ async function restoreVoice(socket, room) {
         } catch { notify('Microfone indisponível após a reconexão. Você ainda pode ouvir a sala.'); }
       }
       if (state.socket !== socket || !socket.connected || state.voice !== room || state.voiceResumeId !== resumeId) return;
-      const result = await emitAck('voice:join', room);
+      const result = await emitAck('voice:join', { room, sound: currentJoinSound() });
       if (!result.ok) throw new Error(result.error);
       if (state.socket !== socket || !socket.connected || state.voice !== room || state.voiceResumeId !== resumeId) return;
       state.rejoinRoom = null;
+      state.voiceMessages[room] = result.messages || [];
+      renderVoiceChat();
       if (state.mic) watchAudio(socket.id, state.mic);
       socket.emit('voice:state', { muted: state.muted, sharing: !!state.screen, cameraStreamId: state.camera?.id || null, cameraTrackId: state.cameraTrackId });
       updateVoiceUi();
@@ -911,6 +966,8 @@ function leaveVoice() {
   stopWatching(state.socket?.id);
   state.audioContext?.close().catch(() => {});
   state.audioContext = null;
+  state.notificationContext?.close().catch(() => {});
+  state.notificationContext = null;
   state.mic?.getTracks().forEach(track => track.stop());
   state.mic = null;
   state.voice = null;
@@ -1073,7 +1130,23 @@ function connect(url, name, code) {
     }
     renderChannels();
   });
-  socket.on('voice:peer-joined', ({ id }) => { if (state.voice) createPeer(id); });
+  socket.on('voice:peer-joined', ({ id, sound }) => {
+    if (state.socket !== socket || !state.voice) return;
+    createPeer(id);
+    playNotification('join', sound);
+  });
+  socket.on('voice:message', message => {
+    if (state.socket !== socket || message.room !== state.voice) return;
+    const items = state.voiceMessages[message.room] ||= [];
+    if (items.some(item => item.id === message.id)) return;
+    items.push(message);
+    state.voiceMessages[message.room] = items.slice(-100);
+    renderVoiceChat();
+    if (message.from !== socket.id) {
+      playNotification('message');
+      if (state.view !== 'voice') notify(`${message.author}: ${message.content.slice(0, 90)}`);
+    }
+  });
   socket.on('voice:peer-left', ({ id }) => { closePeer(id); state.peerFailures.delete(id); });
   socket.on('voice:speaking', ({ id, speaking }) => {
     state.remoteSpeaking.set(id, speaking);
@@ -1110,6 +1183,21 @@ $('message-form').onsubmit = async event => {
     if (state.pendingFile === selected) { state.pendingFile = null; $('file-input').value = ''; renderAttachmentPreview(); }
   } catch (error) { notify(error.message); }
   finally { $('message-form').querySelector('[type="submit"]').disabled = false; }
+};
+$('voice-chat-form').onsubmit = async event => {
+  event.preventDefault();
+  if (!state.voice || !state.socket?.connected) return notify('Entre na sala de voz para enviar mensagens.');
+  const input = $('voice-chat-input');
+  const content = input.value.trim();
+  if (!content) return;
+  const button = $('voice-chat-form').querySelector('[type="submit"]');
+  button.disabled = true;
+  try {
+    const result = await emitAck('voice:message:send', { content });
+    if (!result.ok) throw new Error(result.error);
+    input.value = '';
+  } catch (error) { notify(error.message || 'Não foi possível enviar a mensagem.'); }
+  finally { button.disabled = false; }
 };
 $('attachment-btn').onclick = () => $('file-input').click();
 $('file-input').onchange = () => {
@@ -1238,6 +1326,52 @@ $('avatar-remove').onclick = async () => {
     notify('Foto removida.');
   } catch (error) { notify(error.message || 'Não foi possível remover a foto.'); }
 };
+$('entry-sound-mode').onchange = () => {
+  if ($('entry-sound-mode').value === 'custom' && !state.joinSound) {
+    $('entry-sound-mode').value = 'default';
+    $('entry-sound-file').click();
+    return;
+  }
+  localStorage.setItem('orbita-entry-sound-mode', $('entry-sound-mode').value);
+};
+$('entry-sound-choose').onclick = () => $('entry-sound-file').click();
+$('entry-sound-remove').onclick = () => {
+  state.joinSound = null; state.joinSoundName = '';
+  localStorage.removeItem('orbita-entry-sound');
+  localStorage.removeItem('orbita-entry-sound-name');
+  localStorage.setItem('orbita-entry-sound-mode', 'default');
+  $('entry-sound-mode').value = 'default';
+  renderJoinSoundSetting();
+};
+$('entry-sound-file').onchange = async () => {
+  const file = $('entry-sound-file').files[0];
+  if (!file) return;
+  try {
+    const mime = ['audio/x-wav', 'audio/wave'].includes(file.type) ? 'audio/wav' : file.type;
+    if (!['audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/webm'].includes(mime) || file.size < 1 || file.size > 512 * 1024)
+      throw new Error('Escolha um MP3, OGG, WAV ou WebM de até 512 KB.');
+    const sound = await new Promise((resolve, reject) => {
+      const reader = new window.FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(new Error('Não foi possível ler o áudio.'));
+      reader.readAsDataURL(file);
+    });
+    const normalized = sound.replace(/^data:[^;]+;base64,/, `data:${mime};base64,`);
+    if (!/^data:audio\/(mpeg|ogg|wav|webm);base64,[A-Za-z0-9+/]+={0,2}$/.test(normalized)) throw new Error('Áudio inválido.');
+    localStorage.setItem('orbita-entry-sound', normalized);
+    localStorage.setItem('orbita-entry-sound-name', file.name.slice(0, 100));
+    localStorage.setItem('orbita-entry-sound-mode', 'custom');
+    state.joinSound = normalized; state.joinSoundName = file.name.slice(0, 100);
+    $('entry-sound-mode').value = 'custom';
+    renderJoinSoundSetting();
+    notify('Som de entrada atualizado.');
+  } catch (error) { notify(error.message || 'Não foi possível salvar o áudio.'); }
+  finally { $('entry-sound-file').value = ''; }
+};
+$('notification-sounds').onchange = () => {
+  state.notificationSounds = $('notification-sounds').checked;
+  localStorage.setItem('orbita-notification-sounds', String(state.notificationSounds));
+};
 $('disconnect-btn').onclick = leaveVoice;
 $('leave-call-btn').onclick = leaveVoice;
 $('share-btn').onclick = chooseSource;
@@ -1328,6 +1462,12 @@ try {
   const cameraFps = Number(localStorage.getItem('orbita-camera-fps'));
   if (CAMERA_FRAME_RATES.includes(cameraFps)) state.cameraFps = cameraFps;
   state.cameraDevice = localStorage.getItem('orbita-camera-device') || '';
+  const joinSound = localStorage.getItem('orbita-entry-sound');
+  if (joinSound && joinSound.length <= Math.ceil(512 * 1024 * 4 / 3) + 64 && /^data:audio\/(mpeg|ogg|wav|webm);base64,[A-Za-z0-9+/]+={0,2}$/.test(joinSound)) {
+    state.joinSound = joinSound;
+    state.joinSoundName = localStorage.getItem('orbita-entry-sound-name') || 'Áudio personalizado';
+  }
+  state.notificationSounds = localStorage.getItem('orbita-notification-sounds') !== 'false';
   const volumes = JSON.parse(localStorage.getItem('orbita-volumes') || '{}');
   if (volumes && typeof volumes === 'object' && !Array.isArray(volumes)) state.volumes = volumes;
 } catch { /* Sem conexão anterior. */ }
@@ -1338,6 +1478,9 @@ $('share-quality').value = state.shareQuality;
 $('camera-filter').value = state.cameraFilter;
 $('camera-resolution').value = state.cameraResolution;
 $('camera-fps').value = String(state.cameraFps);
+$('entry-sound-mode').value = state.joinSound && localStorage.getItem('orbita-entry-sound-mode') === 'custom' ? 'custom' : 'default';
+$('notification-sounds').checked = state.notificationSounds;
+renderJoinSoundSetting();
 listCameras();
 if (!orbita.canShareSystemAudio) {
   $('share-audio').disabled = true;

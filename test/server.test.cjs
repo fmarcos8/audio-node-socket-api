@@ -193,3 +193,62 @@ test('histórico anterior continua visível, sem conceder edição por nome', as
     assert.equal((await ack(socket, 'message:edit', { channel: 'geral', id: 'antiga', content: 'Alterada' })).ok, false);
   } finally { socket?.disconnect(); await server.close(); rmSync(dataDir, { recursive: true, force: true }); }
 });
+
+test('som de entrada e chat ficam restritos à sala de voz e persistem', async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'orbita-voice-chat-'));
+  const server = createChatServer({ port: 0, host: '127.0.0.1', password: 'codigo-seguro', dataDir });
+  const sockets = [];
+  try {
+    const address = await server.listen();
+    const url = `http://127.0.0.1:${address.port}`;
+    for (const name of ['Ana', 'Bia', 'Caio']) {
+      const socket = client(url, name, 'codigo-seguro');
+      sockets.push(socket);
+      await once(socket, 'init');
+    }
+    const [ana, bia, caio] = sockets;
+    assert.equal((await ack(caio, 'voice:message:send', { content: 'fora' })).ok, false);
+    assert.equal((await ack(ana, 'voice:join', { room: 'sala-geral' })).ok, true);
+    assert.equal((await ack(caio, 'voice:join', { room: 'sala-2' })).ok, true);
+    assert.equal((await ack(bia, 'voice:join', { room: 'sala-geral', sound: 'data:audio/wav;base64,YWJj' })).ok, false);
+    assert.equal((await ack(bia, 'voice:join', { room: 'sala-geral', sound: `data:audio/wav;base64,${Buffer.alloc(512 * 1024 + 1).toString('base64')}` })).ok, false);
+    const sound = `data:audio/wav;base64,${Buffer.from('RIFFxxxxWAVEfmt ').toString('base64')}`;
+    const joined = once(ana, 'voice:peer-joined');
+    const result = await ack(bia, 'voice:join', { room: 'sala-geral', sound });
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.messages, []);
+    assert.equal((await joined).sound, sound);
+    let duplicated = false;
+    ana.once('voice:peer-joined', () => { duplicated = true; });
+    assert.equal((await ack(bia, 'voice:join', { room: 'sala-geral', sound })).ok, true);
+    await new Promise(resolve => setTimeout(resolve, 30));
+    assert.equal(duplicated, false);
+    let leaked = false;
+    caio.once('voice:message', () => { leaked = true; });
+    const received = once(ana, 'voice:message');
+    const echoed = once(bia, 'voice:message');
+    assert.equal((await ack(bia, 'voice:message:send', { content: 'Oi, sala geral!' })).ok, true);
+    assert.equal((await received).content, 'Oi, sala geral!');
+    assert.equal((await echoed).room, 'sala-geral');
+    await new Promise(resolve => setTimeout(resolve, 30));
+    assert.equal(leaked, false);
+    assert.deepEqual((await ack(caio, 'voice:join', 'sala-2')).messages, []);
+    assert.equal((await ack(bia, 'voice:message:send', { content: ' '.repeat(5) })).ok, false);
+    for (const socket of sockets) socket.disconnect();
+    await server.close();
+    const again = createChatServer({ port: 0, host: '127.0.0.1', password: 'codigo-seguro', dataDir });
+    try {
+      const next = await again.listen();
+      const socket = client(`http://127.0.0.1:${next.port}`, 'Ana', 'codigo-seguro');
+      sockets.push(socket);
+      await once(socket, 'init');
+      const history = await ack(socket, 'voice:join', 'sala-geral');
+      assert.equal(history.messages.length, 1);
+      assert.equal(history.messages[0].content, 'Oi, sala geral!');
+    } finally { await again.close(); }
+  } finally {
+    for (const socket of sockets) socket.disconnect();
+    await server.close();
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});

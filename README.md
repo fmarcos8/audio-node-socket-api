@@ -100,7 +100,9 @@ Use salas pequenas: cada participante envia áudio e tela diretamente a cada out
 
 ### Navegação e chamada de voz
 
-- Clique numa sala de voz para abrir a tela da chamada: ela mostra participantes, quem está falando e os compartilhamentos de tela. O chat de texto não aparece nessa visualização.
+- Clique numa sala de voz para abrir a tela da chamada: ela mostra participantes, quem está falando, os compartilhamentos de tela e o chat da própria sala. O chat dos canais de texto não aparece nessa visualização.
+- Escreva no chat lateral da sala de voz para conversar com quem estiver nela. Somente participantes da sala recebem as mensagens. As últimas 100 mensagens por sala são salvas em `data/voice-messages.json` e voltam após a reconexão ou reinício do servidor.
+- Em **Configurações → Sons da chamada**, escolha o som padrão ou um áudio próprio para tocar aos colegas quando você entrar. Aceita MP3, OGG, WAV ou WebM de até 512 KB; o arquivo fica salvo neste dispositivo e é enviado aos colegas presentes ao entrar. A opção **Reproduzir sons de entrada e de mensagens** controla o que você escuta. Mensagens de outras pessoas no chat da chamada produzem um aviso sonoro e, se você estiver em outra tela do aplicativo, mostram uma notificação.
 - Ajuste o controle de volume no cartão de cada colega. O nível é salvo por pessoa e servidor neste dispositivo; o botão de desativar áudio continua silenciando toda a sala.
 - Clique num canal de texto para voltar ao chat. Você permanece conectado à sala de voz até clicar em **Sair** ou **Desconectar**; o painel de conexão continua na barra lateral.
 - Use **Ligar câmera** na sala de voz para mostrar a webcam no seu cartão, no lugar da foto. Em **Configurações → Webcam**, escolha a câmera, a resolução (360p, 720p ou 1080p), a taxa de quadros (15, 24 ou 30 FPS) e um filtro (preto e branco, sépia, quente, contraste ou suavizar). A resolução e os FPS podem ser alterados durante a chamada, inclusive com filtro ativo; dependem dos recursos da webcam e da rede. O filtro é aplicado ao vídeo enviado para os colegas; as preferências ficam salvas neste dispositivo. Desligar a câmera ou sair da sala encerra a captura.
@@ -122,7 +124,7 @@ Para publicar a próxima versão Windows, atualize o número em `package.json` e
 
 ### Atualizar a instalação
 
-No servidor Docker, substitua os arquivos do projeto mantendo seu `.env` e execute `docker compose up -d --build`. Não exclua o volume `orbita-data`. No Windows, extraia a versão nova do projeto, execute `npm install` e `npm run pack:win`, depois instale o novo `.exe`. **Atualize servidor e cliente** para usar anexos de até 100 MB e foto de perfil.
+No servidor Docker, substitua os arquivos do projeto mantendo seu `.env` e execute `docker compose up -d --build`. Não exclua o volume `orbita-data`. No Windows, extraia a versão nova do projeto, execute `npm install` e `npm run pack:win`, depois instale o novo `.exe`. **Atualize servidor e cliente** para usar o chat da sala e os sons de entrada.
 
 ## Empacotar
 

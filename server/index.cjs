@@ -15,7 +15,20 @@ const VOICES = [
 ];
 const MAX_FILE_SIZE = 100 * 1024 * 1024;
 const MAX_AVATAR_SIZE = 512 * 1024;
+const MAX_JOIN_SOUND_SIZE = 512 * 1024;
 const MAX_AVATAR_PIXELS = 1024;
+function validJoinSound(sound) {
+  if (sound == null) return true;
+  if (typeof sound !== 'string' || sound.length > Math.ceil(MAX_JOIN_SOUND_SIZE * 4 / 3) + 64) return false;
+  const match = /^data:audio\/(mpeg|ogg|wav|webm);base64,([A-Za-z0-9+/]+={0,2})$/.exec(sound);
+  if (!match) return false;
+  const bytes = Buffer.from(match[2], 'base64');
+  if (!bytes.length || bytes.length > MAX_JOIN_SOUND_SIZE) return false;
+  if (match[1] === 'mpeg') return bytes.toString('ascii', 0, 3) === 'ID3' || (bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0);
+  if (match[1] === 'ogg') return bytes.toString('ascii', 0, 4) === 'OggS';
+  if (match[1] === 'wav') return bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WAVE';
+  return bytes.subarray(0, 4).equals(Buffer.from('1a45dfa3', 'hex'));
+}
 function imageDimensions(bytes, format) {
   if (format === 'png') {
     if (bytes.length < 24 || !bytes.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex')) || bytes.toString('ascii', 12, 16) !== 'IHDR') return null;
@@ -87,6 +100,7 @@ function createChatServer({ port = 3000, host = '0.0.0.0', password, dataDir = j
   let attachmentBytes = readdirSync(uploadsDir).filter(name => /^[a-f0-9]{32}$/.test(name))
     .reduce((sum, name) => sum + statSync(join(uploadsDir, name)).size, 0);
   const file = join(dataDir, 'messages.json');
+  const voiceFile = join(dataDir, 'voice-messages.json');
   const profilesFile = join(dataDir, 'profiles.json');
   let profiles = {};
   try {
@@ -101,6 +115,13 @@ function createChatServer({ port = 3000, host = '0.0.0.0', password, dataDir = j
     for (const { id } of CHANNELS) if (Array.isArray(saved[id])) messages[id] = saved[id].slice(-200);
   } catch (error) {
     if (error.code !== 'ENOENT') console.warn('Histórico inválido; iniciando histórico vazio:', error.message);
+  }
+  let voiceMessages = Object.fromEntries(VOICES.map(({ id }) => [id, []]));
+  try {
+    const saved = JSON.parse(readFileSync(voiceFile, 'utf8'));
+    for (const { id } of VOICES) if (Array.isArray(saved?.[id])) voiceMessages[id] = saved[id].slice(-100);
+  } catch (error) {
+    if (error.code !== 'ENOENT') console.warn('Histórico das salas de voz inválido:', error.message);
   }
   const httpServer = createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
@@ -117,6 +138,11 @@ function createChatServer({ port = 3000, host = '0.0.0.0', password, dataDir = j
     const temp = `${profilesFile}.${process.pid}.tmp`;
     writeFileSync(temp, JSON.stringify(profiles));
     renameSync(temp, profilesFile);
+  };
+  const persistVoiceMessages = () => {
+    const temp = `${voiceFile}.${process.pid}.tmp`;
+    writeFileSync(temp, JSON.stringify(voiceMessages));
+    renameSync(temp, voiceFile);
   };
   const avatarFor = key => typeof profiles[key]?.avatar === 'string' ? profiles[key].avatar : null;
   const profileIdFor = key => key ? createHash('sha256').update(`profile:${key}`).digest('hex') : null;
@@ -161,7 +187,7 @@ function createChatServer({ port = 3000, host = '0.0.0.0', password, dataDir = j
 
   io.on('connection', socket => {
     console.info(`[${new Date().toISOString()}] ${socket.data.name} conectado (${socket.id})`);
-    users.set(socket.id, { name: socket.data.name, ownerKey: socket.data.ownerKey, voice: null, sharing: false, cameraStreamId: null, cameraTrackId: null, muted: false, lastMessage: 0, rates: {} });
+    users.set(socket.id, { name: socket.data.name, ownerKey: socket.data.ownerKey, voice: null, sharing: false, cameraStreamId: null, cameraTrackId: null, muted: false, lastMessage: 0, lastVoiceMessage: 0, rates: {} });
     const visible = Object.fromEntries(CHANNELS.map(({ id }) =>
       [id, messages[id].map(message => publicMessage(message, socket, false))]));
     const avatars = {};
@@ -282,19 +308,43 @@ function createChatServer({ port = 3000, host = '0.0.0.0', password, dataDir = j
       catch { done({ ok: false, error: 'Arquivo indisponível.' }); }
     });
 
-    socket.on('voice:join', (room, ack) => {
+    socket.on('voice:join', (request, ack) => {
       const done = typeof ack === 'function' ? ack : () => {};
+      const room = typeof request === 'string' ? request : request?.room;
+      const sound = typeof request === 'string' ? null : request?.sound ?? null;
       if (!withinRate(users.get(socket.id), 'join', 10)) return done({ ok: false, error: 'Muitas entradas em sala.' });
       if (!VOICES.some(voice => voice.id === room)) return done({ ok: false, error: 'Sala inválida.' });
+      if (!validJoinSound(sound)) return done({ ok: false, error: 'Som de entrada inválido ou maior que 512 KB.' });
       if (users.get(socket.id)?.voice === room)
-        return done({ ok: true, peers: members(room).filter(member => member.id !== socket.id) });
+        return done({ ok: true, peers: members(room).filter(member => member.id !== socket.id), messages: voiceMessages[room] });
       leaveVoice(socket);
       const peers = members(room);
       users.get(socket.id).voice = room;
       socket.join(`voice:${room}`);
-      done({ ok: true, peers });
-      socket.to(`voice:${room}`).emit('voice:peer-joined', { id: socket.id, name: socket.data.name });
+      done({ ok: true, peers, messages: voiceMessages[room] });
+      socket.to(`voice:${room}`).emit('voice:peer-joined', { id: socket.id, name: socket.data.name, sound });
       io.emit('voice:roster', roster());
+    });
+    socket.on('voice:message:send', (payload, ack) => {
+      const done = typeof ack === 'function' ? ack : () => {};
+      const user = users.get(socket.id);
+      if (!user?.voice) return done({ ok: false, error: 'Entre em uma sala de voz para enviar mensagens.' });
+      const content = typeof payload?.content === 'string' ? payload.content.trim() : '';
+      if (!content || content.length > 2000) return done({ ok: false, error: 'Escreva uma mensagem de até 2000 caracteres.' });
+      if (Date.now() - user.lastVoiceMessage < 400) return done({ ok: false, error: 'Espere um instante antes de enviar outra mensagem.' });
+      user.lastVoiceMessage = Date.now();
+      const room = user.voice;
+      const message = { id: randomBytes(12).toString('hex'), room, from: socket.id, author: user.name, content, at: Date.now() };
+      const previous = voiceMessages[room];
+      voiceMessages[room] = [...previous, message].slice(-100);
+      try { persistVoiceMessages(); }
+      catch (error) {
+        voiceMessages[room] = previous;
+        console.error('Falha ao salvar mensagem da sala de voz:', error);
+        return done({ ok: false, error: 'Não foi possível salvar a mensagem.' });
+      }
+      io.to(`voice:${room}`).emit('voice:message', message);
+      done({ ok: true });
     });
     socket.on('voice:leave', () => leaveVoice(socket));
     socket.on('voice:state', state => {

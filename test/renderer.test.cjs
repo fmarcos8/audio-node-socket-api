@@ -36,7 +36,8 @@ test('navegação, cartões de câmera e tela com janela separada e configuraç�
   assert.equal($('voice-stage-name').textContent, 'Pessoas na chamada');
   assert.equal($('media-dock').parentElement.className, 'main');
   assert.equal($('media-dock').previousElementSibling, $('voice-stage'));
-  assert.equal($('call-grid').parentElement, $('voice-stage'));
+  assert.equal($('call-grid').parentElement.parentElement, $('voice-stage'));
+  assert.equal($('voice-chat-form').parentElement.parentElement.parentElement, $('voice-stage'));
   assert.equal($('app').classList.contains('voice-view'), true);
   assert.equal(window.getComputedStyle($('media-dock')).position, 'static');
   assert.equal(window.getComputedStyle($('call-grid')).display, 'grid');
@@ -393,5 +394,74 @@ test('reconecta automaticamente à conexão salva e troca de servidor limpa a se
   window.document.getElementById('leave-server').click();
   assert.equal(socket.disconnected, true);
   assert.equal(window.localStorage.getItem('orbita-connection'), null);
+  await window.happyDOM.abort();
+});
+
+test('chat da chamada e som personalizado notificam apenas quem está na sala', async () => {
+  const { Window } = await import('happy-dom');
+  const window = new Window({ url: 'http://localhost' });
+  window.document.write(readFileSync(join(__dirname, '../renderer/index.html'), 'utf8'));
+  const events = new Map();
+  const sent = [];
+  const socket = {
+    id: 'eu', connected: true,
+    on: (event, handler) => events.set(event, handler),
+    timeout: () => ({ emit: (event, payload, callback) => {
+      sent.push([event, payload]);
+      callback(null, event === 'voice:join' ? { ok: true, peers: [], messages: [] } : { ok: true });
+    } }),
+    emit: () => {}, disconnect: () => {}
+  };
+  const customAudio = [];
+  let tones = 0;
+  window.Audio = class {
+    constructor(source) { customAudio.push(source); }
+    play() { return Promise.resolve(); }
+  };
+  window.AudioContext = class {
+    currentTime = 0;
+    destination = {};
+    resume() { return Promise.resolve(); }
+    createOscillator() { return { frequency: {}, connect() {}, start() { tones++; }, stop() {} }; }
+    createGain() { return { gain: { setValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect() {} }; }
+  };
+  const custom = `data:audio/wav;base64,${Buffer.from('RIFFxxxxWAVEfmt ').toString('base64')}`;
+  window.FileReader = class {
+    readAsDataURL() { this.result = custom.replace('audio/wav', 'audio/x-wav'); this.onload(); }
+  };
+  const context = vm.createContext({
+    document: window.document, window, localStorage: window.localStorage,
+    crypto: webcrypto, Intl, URL, console, setTimeout, clearTimeout, setInterval, clearInterval,
+    io: () => socket, orbita: {}
+  });
+  vm.runInContext(readFileSync(join(__dirname, '../renderer/app.js'), 'utf8'), context);
+  const $ = id => window.document.getElementById(id);
+  Object.defineProperty($('entry-sound-file'), 'files', { configurable: true, value: [{ type: 'audio/x-wav', size: 16, name: 'entrada.wav' }] });
+  await $('entry-sound-file').onchange();
+  assert.equal(window.localStorage.getItem('orbita-entry-sound-mode'), 'custom');
+  assert.equal(window.localStorage.getItem('orbita-entry-sound'), custom);
+  context.navigator = { mediaDevices: { getUserMedia: async () => { throw new Error('Sem microfone'); } } };
+  vm.runInContext("connect('https://chat.exemplo.test', 'Ana', 'codigo-seguro')", context);
+  events.get('init')({ channels: [{ id: 'geral', name: 'geral' }], voices: [{ id: 'sala-geral', name: 'Sala geral' }], messages: { geral: [] }, roster: { 'sala-geral': [{ id: 'eu', name: 'Ana' }] }, iceServers: [] });
+  await vm.runInContext("joinVoice('sala-geral')", context);
+  const joined = sent.find(([event]) => event === 'voice:join')[1];
+  assert.equal(joined.room, 'sala-geral');
+  assert.equal(joined.sound, custom);
+  vm.runInContext("state.peers.set('outro', { pc: {} })", context);
+  events.get('voice:peer-joined')({ id: 'outro', sound: custom });
+  assert.deepEqual(customAudio, [custom]);
+  events.get('voice:message')({ id: 'm1', room: 'sala-geral', from: 'outro', author: 'Bia', content: 'Oi!', at: Date.now() });
+  assert.equal($('voice-chat-messages').querySelector('p').textContent, 'Oi!');
+  assert.equal(tones, 1);
+  $('voice-chat-input').value = 'Resposta';
+  await $('voice-chat-form').onsubmit({ preventDefault() {} });
+  assert.equal(sent.find(([event]) => event === 'voice:message:send')[1].content, 'Resposta');
+  assert.equal($('voice-chat-input').value, '');
+  $('notification-sounds').checked = false; $('notification-sounds').onchange();
+  assert.equal(window.localStorage.getItem('orbita-notification-sounds'), 'false');
+  events.get('voice:peer-joined')({ id: 'outro', sound: custom });
+  assert.equal(customAudio.length, 1);
+  events.get('voice:message')({ id: 'm2', room: 'sala-2', from: 'outro', author: 'Bia', content: 'Outra sala', at: Date.now() });
+  assert.equal($('voice-chat-messages').textContent.includes('Outra sala'), false);
   await window.happyDOM.abort();
 });
