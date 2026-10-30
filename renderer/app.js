@@ -27,7 +27,7 @@ const state = {
   cameraFilter: 'none', cameraDevice: '', cameraResolution: '360p', cameraFps: 15,
   cameraBusy: false, videoStreams: new Map(), knownCameraStreams: new Map(),
   voiceMessages: {}, joinSound: null, joinSoundName: '', notificationSounds: true, notificationContext: null,
-  voiceProtocol: 'unknown', legacyNoticeShown: false
+  voiceProtocol: 'unknown', legacyNoticeShown: false, voiceChatCollapsed: false, voiceChatUnread: 0
 };
 
 function volumeKey(member) { return `${state.serverUrl}:${member.profileId || member.id}`; }
@@ -99,6 +99,20 @@ function renderVoiceChat() {
     row.append(header, make('p', '', message.content)); list.append(row);
   }
   list.scrollTop = list.scrollHeight;
+}
+function updateVoiceChatVisibility() {
+  const unavailable = state.voiceProtocol === 'legacy';
+  const collapsed = unavailable || state.voiceChatCollapsed;
+  if (state.voice && state.view === 'voice' && !collapsed) state.voiceChatUnread = 0;
+  $('voice-chat').classList.toggle('hidden', collapsed);
+  $('voice-room-layout').classList.toggle('legacy-voice', unavailable);
+  $('voice-room-layout').classList.toggle('chat-collapsed', collapsed);
+  $('voice-chat-toggle').classList.toggle('hidden', unavailable);
+  $('voice-chat-toggle').setAttribute('aria-expanded', String(!collapsed));
+  $('voice-chat-toggle').title = collapsed ? 'Mostrar chat' : 'Ocultar chat';
+  $('voice-chat-toggle-label').textContent = collapsed ? 'Mostrar chat' : 'Ocultar chat';
+  $('voice-chat-unread').textContent = state.voiceChatUnread > 99 ? '99+' : String(state.voiceChatUnread);
+  $('voice-chat-unread').classList.toggle('hidden', !state.voiceChatUnread || !state.voiceChatCollapsed || unavailable);
 }
 async function checkUpdates(manual = false) {
   if (!orbita.checkUpdates) return;
@@ -260,8 +274,7 @@ function renderView() {
   $('settings-view').classList.toggle('hidden', !settingsView);
   $('attachment-preview').classList.toggle('hidden', voiceView || settingsView || !state.pendingFile);
   $('media-dock').classList.toggle('hidden', !voiceView);
-  $('voice-chat').classList.toggle('hidden', state.voiceProtocol === 'legacy');
-  $('voice-room-layout').classList.toggle('legacy-voice', state.voiceProtocol === 'legacy');
+  updateVoiceChatVisibility();
   $('channel-title').textContent = settingsView ? 'Configurações' : voiceView ? room.name : state.channels.find(item => item.id === state.channel)?.name || 'geral';
   $('channel-description').textContent = settingsView ? 'Personalização' : voiceView ? 'Sala de voz' : 'Canal de texto';
   document.querySelector('.top-title img').src = `icons/${settingsView ? 'settings' : voiceView ? 'volume-2' : 'hash'}.svg`;
@@ -911,6 +924,7 @@ async function enterVoice(room) {
     if (state.socket !== socket || !socket.connected) throw new Error('Conexão encerrada.');
     state.voice = room;
     state.view = 'voice';
+    state.voiceChatUnread = 0;
     state.voiceMessages[room] = result.messages || [];
     renderVoiceChat();
     if (state.mic) watchAudio(state.socket.id, state.mic);
@@ -946,6 +960,7 @@ async function restoreVoice(socket, room) {
       if (!result.ok) throw new Error(result.error);
       if (state.socket !== socket || !socket.connected || state.voice !== room || state.voiceResumeId !== resumeId) return;
       state.rejoinRoom = null;
+      state.voiceChatUnread = 0;
       state.voiceMessages[room] = result.messages || [];
       renderVoiceChat();
       if (state.mic) watchAudio(socket.id, state.mic);
@@ -991,6 +1006,7 @@ function leaveVoice() {
   state.mic?.getTracks().forEach(track => track.stop());
   state.mic = null;
   state.voice = null;
+  state.voiceChatUnread = 0;
   state.pendingSignals.length = 0;
   state.speakingLevels.clear(); state.remoteSpeaking.clear();
   state.peerFailures.clear();
@@ -1166,6 +1182,8 @@ function connect(url, name, code) {
     state.voiceMessages[message.room] = items.slice(-100);
     renderVoiceChat();
     if (message.from !== socket.id) {
+      if (state.voiceChatCollapsed || state.view !== 'voice') state.voiceChatUnread++;
+      updateVoiceChatVisibility();
       playNotification('message');
       if (state.view !== 'voice') notify(`${message.author}: ${message.content.slice(0, 90)}`);
     }
@@ -1222,6 +1240,11 @@ $('voice-chat-form').onsubmit = async event => {
     input.value = '';
   } catch (error) { notify(error.message || 'Não foi possível enviar a mensagem.'); }
   finally { button.disabled = false; }
+};
+$('voice-chat-toggle').onclick = () => {
+  state.voiceChatCollapsed = !state.voiceChatCollapsed;
+  localStorage.setItem('orbita-voice-chat-collapsed', String(state.voiceChatCollapsed));
+  updateVoiceChatVisibility();
 };
 $('attachment-btn').onclick = () => $('file-input').click();
 $('file-input').onchange = () => {
@@ -1492,6 +1515,7 @@ try {
     state.joinSoundName = localStorage.getItem('orbita-entry-sound-name') || 'Áudio personalizado';
   }
   state.notificationSounds = localStorage.getItem('orbita-notification-sounds') !== 'false';
+  state.voiceChatCollapsed = localStorage.getItem('orbita-voice-chat-collapsed') === 'true';
   const volumes = JSON.parse(localStorage.getItem('orbita-volumes') || '{}');
   if (volumes && typeof volumes === 'object' && !Array.isArray(volumes)) state.volumes = volumes;
 } catch { /* Sem conexão anterior. */ }
