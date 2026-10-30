@@ -465,3 +465,43 @@ test('chat da chamada e som personalizado notificam apenas quem está na sala', 
   assert.equal($('voice-chat-messages').textContent.includes('Outra sala'), false);
   await window.happyDOM.abort();
 });
+
+test('cliente novo entra em salas de voz de um servidor anterior', async () => {
+  const { Window } = await import('happy-dom');
+  const window = new Window({ url: 'http://localhost' });
+  window.document.write(readFileSync(join(__dirname, '../renderer/index.html'), 'utf8'));
+  const events = new Map();
+  const joins = [];
+  const socket = {
+    id: 'eu', connected: true,
+    on: (event, handler) => events.set(event, handler),
+    timeout: () => ({ emit: (event, request, callback) => {
+      if (event === 'voice:join') {
+        joins.push(request);
+        callback(null, typeof request === 'string' ? { ok: true, peers: [] } : { ok: false, error: 'Sala inválida.' });
+      } else callback(null, { ok: true });
+    } }),
+    emit: () => {}, disconnect: () => {}
+  };
+  const context = vm.createContext({
+    document: window.document, window, localStorage: window.localStorage,
+    crypto: webcrypto, Intl, URL, console, setTimeout, clearTimeout, setInterval, clearInterval,
+    navigator: { mediaDevices: { getUserMedia: async () => { throw new Error('Sem microfone'); } } },
+    io: () => socket, orbita: {}
+  });
+  vm.runInContext(readFileSync(join(__dirname, '../renderer/app.js'), 'utf8'), context);
+  vm.runInContext("connect('https://chat.exemplo.test', 'Ana', 'codigo-seguro')", context);
+  events.get('init')({ channels: [{ id: 'geral', name: 'geral' }], voices: [{ id: 'sala-geral', name: 'Sala geral' }, { id: 'sala-2', name: 'Sala 2' }], messages: { geral: [] }, roster: { 'sala-geral': [], 'sala-2': [] }, iceServers: [] });
+  await vm.runInContext("joinVoice('sala-geral')", context);
+  assert.equal(joins.length, 2);
+  assert.equal(joins[0].room, 'sala-geral');
+  assert.equal(joins[1], 'sala-geral');
+  assert.equal(vm.runInContext('state.voice', context), 'sala-geral');
+  assert.equal(window.document.getElementById('voice-chat').classList.contains('hidden'), true);
+  assert.equal(window.document.getElementById('voice-room-layout').classList.contains('legacy-voice'), true);
+  await vm.runInContext("joinVoice('sala-2')", context);
+  assert.equal(joins.length, 3);
+  assert.equal(joins[2], 'sala-2');
+  assert.equal(vm.runInContext('state.voice', context), 'sala-2');
+  await window.happyDOM.abort();
+});

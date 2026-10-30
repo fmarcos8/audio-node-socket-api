@@ -26,7 +26,8 @@ const state = {
   camera: null, cameraSource: null, cameraInput: null, cameraCanvas: null, cameraTimer: null, cameraTrackId: null,
   cameraFilter: 'none', cameraDevice: '', cameraResolution: '360p', cameraFps: 15,
   cameraBusy: false, videoStreams: new Map(), knownCameraStreams: new Map(),
-  voiceMessages: {}, joinSound: null, joinSoundName: '', notificationSounds: true, notificationContext: null
+  voiceMessages: {}, joinSound: null, joinSoundName: '', notificationSounds: true, notificationContext: null,
+  voiceProtocol: 'unknown', legacyNoticeShown: false
 };
 
 function volumeKey(member) { return `${state.serverUrl}:${member.profileId || member.id}`; }
@@ -146,6 +147,23 @@ function emitAck(event, ...args) {
     state.socket.timeout(event === 'message:send' ? 120000 : 25000).emit(event, ...args, (error, reply) => error ? reject(error) : resolve(reply));
   });
 }
+async function requestVoiceJoin(room) {
+  if (state.voiceProtocol === 'legacy') return emitAck('voice:join', room);
+  const result = await emitAck('voice:join', { room, sound: currentJoinSound() });
+  if (!result.ok && result.error === 'Sala inválida.') {
+    const fallback = await emitAck('voice:join', room);
+    if (fallback.ok) {
+      state.voiceProtocol = 'legacy';
+      if (!state.legacyNoticeShown) {
+        state.legacyNoticeShown = true;
+        notify('Servidor antigo: atualize o Docker para usar o chat e os sons da chamada.');
+      }
+    }
+    return fallback;
+  }
+  if (result.ok) state.voiceProtocol = 'current';
+  return result;
+}
 
 function renderChannels() {
   const text = $('text-channels');
@@ -242,6 +260,8 @@ function renderView() {
   $('settings-view').classList.toggle('hidden', !settingsView);
   $('attachment-preview').classList.toggle('hidden', voiceView || settingsView || !state.pendingFile);
   $('media-dock').classList.toggle('hidden', !voiceView);
+  $('voice-chat').classList.toggle('hidden', state.voiceProtocol === 'legacy');
+  $('voice-room-layout').classList.toggle('legacy-voice', state.voiceProtocol === 'legacy');
   $('channel-title').textContent = settingsView ? 'Configurações' : voiceView ? room.name : state.channels.find(item => item.id === state.channel)?.name || 'geral';
   $('channel-description').textContent = settingsView ? 'Personalização' : voiceView ? 'Sala de voz' : 'Canal de texto';
   document.querySelector('.top-title img').src = `icons/${settingsView ? 'settings' : voiceView ? 'volume-2' : 'hash'}.svg`;
@@ -886,7 +906,7 @@ async function enterVoice(room) {
   }
   try {
     if (state.socket !== socket || !socket?.connected) throw new Error('Conexão encerrada.');
-    const result = await emitAck('voice:join', { room, sound: currentJoinSound() });
+    const result = await requestVoiceJoin(room);
     if (!result.ok) throw new Error(result.error);
     if (state.socket !== socket || !socket.connected) throw new Error('Conexão encerrada.');
     state.voice = room;
@@ -922,7 +942,7 @@ async function restoreVoice(socket, room) {
         } catch { notify('Microfone indisponível após a reconexão. Você ainda pode ouvir a sala.'); }
       }
       if (state.socket !== socket || !socket.connected || state.voice !== room || state.voiceResumeId !== resumeId) return;
-      const result = await emitAck('voice:join', { room, sound: currentJoinSound() });
+      const result = await requestVoiceJoin(room);
       if (!result.ok) throw new Error(result.error);
       if (state.socket !== socket || !socket.connected || state.voice !== room || state.voiceResumeId !== resumeId) return;
       state.rejoinRoom = null;
@@ -1041,6 +1061,8 @@ function connect(url, name, code) {
   if (state.voice) leaveVoice();
   state.rejoinRoom = null;
   state.voiceResumeId++;
+  state.voiceProtocol = 'unknown';
+  state.legacyNoticeShown = false;
   const previousSocket = state.socket;
   state.socket = null;
   previousSocket?.disconnect();
@@ -1051,6 +1073,7 @@ function connect(url, name, code) {
   state.socket = socket;
   socket.on('init', data => {
     if (state.socket !== socket) return;
+    state.voiceProtocol = 'unknown';
     state.channels = data.channels;
     state.voices = data.voices;
     state.messages = data.messages;
@@ -1186,6 +1209,7 @@ $('message-form').onsubmit = async event => {
 };
 $('voice-chat-form').onsubmit = async event => {
   event.preventDefault();
+  if (state.voiceProtocol === 'legacy') return notify('Atualize o servidor Docker para usar o chat da sala.');
   if (!state.voice || !state.socket?.connected) return notify('Entre na sala de voz para enviar mensagens.');
   const input = $('voice-chat-input');
   const content = input.value.trim();
